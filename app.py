@@ -54,27 +54,44 @@ if check_password():
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
                 return pd.DataFrame()
             
+            # 單獨抓取底層超連結地圖
+            sheet_data = worksheet.spreadsheet.fetch_sheet_metadata({"includeGridData": True})
+            grid_data = sheet_data["sheets"]["data"].get("rowData", [])
+            
+            row_url_map = {}
+            for r_idx, row_meta in enumerate(grid_data):
+                cells_meta = row_meta.get("values", [])
+                if len(cells_meta) > 3: 
+                    d_cell = cells_meta[3] # 精確指定 D 欄
+                    url = d_cell.get("hyperlink", "")
+                    text = d_cell.get("formattedValue", "").strip()
+                    if url:
+                        row_url_map[r_idx] = (text if text else "照片連結", url)
+
             structured_list = []
             current_case = None
 
-            # 🚀 100% 導正：使用標準 row[索引] 提取，徹底根除錯位與漏抓
+            # 🚀 完全依照您的 A1, B1, C1 精確數字索引進行數據拆解
             for idx, row in enumerate(raw_data):
-                if idx == 0: # 跳過第 1 列項目名稱標題
+                if idx == 0: # 跳過第 1 列的項目名稱標題
                     continue
                     
                 if len(row) < 5:
                     continue
 
-                # 🎯【終極修正點】補回先前漏打的 [0] ~ [5] 陣列序號！
-                col_A = str(row[0]).strip() if len(row) > 0 else ""
-                col_B = str(row[1]).strip() if len(row) > 1 else ""
-                col_C = str(row[2]).strip() if len(row) > 2 else ""
-                col_D = str(row[3]).strip() if len(row) > 3 else "" # 這是 D 欄照片公式
-                col_E = str(row[4]).strip() if len(row) > 4 else ""
-                col_F = str(row[5]).strip() if len(row) > 5 else ""
+                # 🎯【完美修正】將中括號與數字 0~5 全部精確補齊！
+                col_A = str(row[0]).strip() if len(row) > 0 else "" # A欄 報修日期
+                col_B = str(row[1]).strip() if len(row) > 1 else "" # B欄 設備名稱
+                col_C = str(row[2]).strip() if len(row) > 2 else "" # C欄 故障狀況
+                col_D = str(row[3]).strip() if len(row) > 3 else "" # D欄 附件公式
+                col_E = str(row[4]).strip() if len(row) > 4 else "" # E欄 目前狀態
+                col_F = str(row[5]).strip() if len(row) > 5 else "" # F欄 維修備註
 
-                # 🛠️ 智慧文字解析：從公式 =HYPERLINK("網址", "顯示字") 中把照片連結挖出來
-                photo_links = []
+                # 智慧解析 D 欄滑鼠插入的超連結或公式連結
+                has_url = row_url_map.get(idx, None)
+                photo_links = [has_url] if has_url else []
+
+                # 如果格子內是用打字寫公式，進行雙重保障解析
                 if "HYPERLINK" in col_D:
                     urls = re.findall(r'"(https?://[^"]+)"', col_D)
                     labels = re.findall(r',[^"\')]*"([^"]+)"', col_D) or re.findall(r',[^"\')]*\'([^\']+)\'', col_D)
@@ -103,7 +120,6 @@ if check_password():
                         "故障狀況": col_C, 
                         "圖片連結清單": photo_links,
                         "currently": col_E,
-                        "currently_备注": col_F,
                         "目前狀態": col_E, 
                         "維修進度備註": col_F
                     }
@@ -113,8 +129,8 @@ if check_password():
                         if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                         if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
                         if photo_links: current_case["圖片連結清單"].extend(photo_links)
-                        if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
-                        if col_F and col_F != "nan": current_case["currently_备注"] = current_case["維修進度備註"] = current_case["維修進度備註"] + "\n" + col_F
+                        if col_E and col_E != "nan": current_case["currently"] = current_case["currently"] + "\n" + col_E
+                        if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
 
             if current_case:
                 structured_list.append(current_case)
@@ -149,7 +165,7 @@ if check_password():
                     elif "待主管審核" in t: return "待主管審核"
                     else: return "設備課待處理"
                     
-                clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_four_layers) if "currently" in clean_df.columns else clean_df["currently"].apply(split_status_four_layers)
+                clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_four_layers) if "currently" in clean_df.columns else clean_df["目前狀態"].apply(split_status_four_layers)
 
                 # 月份安全提取
                 def extract_month_label(datetime_text):
