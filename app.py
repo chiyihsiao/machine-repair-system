@@ -48,7 +48,7 @@ if check_password():
             spreadsheet = gc.open_by_url(spreadsheet_url)
             worksheet = spreadsheet.get_worksheet(0)
             
-            # 🚀【超穩定公式軌道】以 FORMULA 模式撈取全表文字，底層 HYPERLINK 函數會變成純文字抓回
+            # 🚀【超穩定公式軌道】以 FORMULA 模式撈取全表文字
             raw_text_data = worksheet.get_all_values(value_render_option='FORMULA')
             if not raw_text_data:
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
@@ -64,7 +64,7 @@ if check_password():
                 col_A = str(row[0]).strip() if len(row) > 0 else ""  # 報修日期／單號
                 col_B = str(row[1]).strip() if len(row) > 1 else ""  # 設備名稱
                 col_C = str(row[2]).strip() if len(row) > 2 else ""  # 故障狀況
-                col_D = str(row[3]).strip() if len(row) > 3 else ""  # 附件 (✨終極修復：強制轉字串防布林False型態)
+                col_D = str(row[3]).strip() if len(row) > 3 else ""  # 附件 (含照片)
                 col_E = str(row[4]).strip() if len(row) > 4 else ""  # 目前狀態
                 col_F = str(row[5]).strip() if len(row) > 5 else ""  # 維修進度備註
                 col_G = str(row[6]).strip() if len(row) > 6 else ""  # 處理過程 (G欄)
@@ -75,7 +75,7 @@ if check_password():
                 if "報修日期" in col_A or "設備名稱" in col_B or "故障狀況" in col_C:
                     continue
 
-                # ✨【智慧網址解析引擎】：利用正規表達式，直接從純文字化的 D 欄公式字串中精確剝離出所有相片連結
+                # ✨【智慧網址解析引擎】：利用正規表達式，直接從字串化的 D 欄中剝離所有連結
                 links_found = []
                 if col_D and col_D.lower() != "nan" and col_D.lower() != "false":
                     urls = re.findall(r'(https?://[^\s"\'\)]+)', col_D)
@@ -87,7 +87,7 @@ if check_password():
                             label = "報修圖"
                         links_found.append((label, url))
 
-                # ✨【智慧清洗純文字】：把設備名稱、目前狀態裡的超連結公式濾乾淨，留下純中文字呈現
+                # ✨【智慧清洗純文字】
                 def clean_formula_text(val):
                     t = str(val).strip()
                     if t.upper().startswith("=HYPERLINK"):
@@ -117,7 +117,7 @@ if check_password():
                         "報修日期／單號": clean_A if clean_A.lower() != "nan" else "", 
                         "設備名稱": clean_B if clean_B.lower() != "nan" else "", 
                         "故障狀況": clean_C if clean_C.lower() != "nan" else "", 
-                        "圖片連結清單": list(links_found),  # 寫入本行挖到的照片
+                        "圖片連結清單": list(links_found),
                         "currently": clean_E if clean_E.lower() != "nan" else "",
                         "currently_F": clean_F if clean_F.lower() != "nan" else "",
                         "currently_G": clean_G if clean_G.lower() != "nan" else "",
@@ -126,23 +126,16 @@ if check_password():
                         "後台處理人員欄": clean_G if clean_G.lower() != "nan" else ""
                     }
                 else:
-                    # 💡 次行換行黏合資料
                     if current_case:
-                        if clean_A and clean_A.lower() != "nan": 
-                            current_case["報修日期／單號"] += "\n" + clean_A
-                        if clean_B and "類別" not in clean_B and clean_B.lower() != "nan": 
-                            current_case["設備名稱"] += ("\n" if current_case["設備名稱"] else "") + clean_B
-                        if clean_C and clean_C.lower() != "nan": 
-                            current_case["故障狀況"] += ("\n" if current_case["故障狀況"] else "") + clean_C
-                        if links_found:
-                            current_case["圖片連結清單"].extend(links_found) # 黏合新換行的照片網址
+                        if clean_A and clean_A.lower() != "nan": current_case["報修日期／單號"] += "\n" + clean_A
+                        if clean_B and "類別" not in clean_B and clean_B.lower() != "nan": current_case["設備名稱"] += ("\n" if current_case["設備名稱"] else "") + clean_B
+                        if clean_C and clean_C.lower() != "nan": current_case["故障狀況"] += ("\n" if current_case["故障狀況"] else "") + clean_C
+                        if links_found: current_case["圖片連結清單"].extend(links_found)
                         if clean_E and clean_E.lower() != "nan": 
                             current_case["currently"] = current_case["currently"] + "\n" + clean_E
                             current_case["目前狀態"] = current_case["目前狀態"] + "\n" + clean_E
-                        if clean_F and clean_F.lower() != "nan": 
-                            current_case["維修進度備註"] += "\n" + clean_F
-                        if clean_G and clean_G.lower() != "nan": 
-                            current_case["後台處理人員欄"] += "\n" + clean_G
+                        if clean_F and clean_F.lower() != "nan": current_case["維修進度備註"] += "\n" + clean_F
+                        if clean_G and clean_G.lower() != "nan": current_case["後台處理人員欄"] += "\n" + clean_G
 
             if current_case:
                 structured_list.append(current_case)
@@ -156,13 +149,15 @@ if check_password():
                     next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202"])), "工廠員工")
                 )
                 
-                # 全局工程師人名純化 (同時比對 E 欄與 G 欄)
+                # ✨【終極核心修正】對所有盲猜文字強制加上型態檢查與安全字串轉型，徹底消滅 in bool 錯誤！
                 def clean_engineer_name(row_data):
-                    g_text = str(row_data.get("currently_G", "")).strip()
-                    e_text = str(row_data.get("currently", "")).strip()
-                    f_text = str(row_data.get("currently_F", "")).strip()
+                    g_text = str(row_data.get("currently_G", "") or "").strip()
+                    e_text = str(row_data.get("currently", "") or "").strip()
+                    f_text = str(row_data.get("currently_F", "") or "").strip()
                     
                     for t in [g_text, e_text, f_text]:
+                        if not t or t.lower() == "nan" or t.lower() == "false":
+                            continue
                         if "蕭志成" in t: return "蕭志成"
                         elif "蕭吉義" in t: return "蕭吉義"
                         elif "葛明輝" in t: return "葛明輝"
@@ -176,7 +171,7 @@ if check_password():
                 
                 # 五層進度分類
                 def split_status_five_layers(status_text):
-                    t = str(status_text)
+                    t = str(status_text or "")
                     if "已完成" in t or "完工" in t: return "Ref已完成"
                     elif "待驗收" in t: return "待主管審核"
                     elif "維修中" in t: return "維修中"
@@ -186,18 +181,18 @@ if check_password():
                 clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_five_layers)
                 clean_df["精確進度狀態"] = clean_df["精確進度狀態"].replace("Ref已完成", "已完成")
 
-                # ✨【月份提取精確修復】：修正原本錯誤。split('/')出來是串列，必須取[1]才是月份數字！
+                # ✨【終極月份提取修正】確保完全正確拆分陣列元素，絕不拋出 ValueError 異常！
                 def extract_month_label(datetime_text):
                     try:
                         first_line = str(datetime_text).split("\n")[0].strip()
                         if "/" in first_line:
                             parts = first_line.split("/")
-                            month_num = int(parts[1]) # ✨ 核心修正：指定[1]取得月份數字，完美解鎖全月份
-                            return f"{month_num:02d}月"
+                            if len(parts) > 1:
+                                return f"{int(parts[1]):02d}月"
                         elif "-" in first_line:
                             parts = first_line.split("-")
-                            month_num = int(parts[1]) # 相容連字號日期格式
-                            return f"{month_num:02d}月"
+                            if len(parts) > 1:
+                                return f"{int(parts[1]):02d}月"
                     except:
                         pass
                     return "08月"
@@ -276,7 +271,6 @@ if check_password():
                 status_now = row_data["精確進度狀態"]
                 border_color = color_map.get(status_now, "#9E9E9E")
                 
-                # ✨【終極安全機制】杜絕 Pandas 的 NaN 浮點數干擾文字直顯
                 def force_get_text(val, fallback_msg=""):
                     if pd.isna(val) or str(val).strip().lower() == "nan" or str(val).strip() == "":
                         return fallback_msg
@@ -290,7 +284,6 @@ if check_password():
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 🚀 智慧多照片超連結直顯 (全自動展開多連結)
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
                     try:
