@@ -1,165 +1,3 @@
-import base64
-import json
-import pandas as pd
-import plotly.express as px
-import streamlit as st
-import gspread
-
-# ================== 智產權捍衛：內建絕對時間鎖 ==================
-EXPIRATION_DATE = "2026-08-19"
-
-# 1. 網頁頂部全寬畫面配置
-st.set_page_config(page_title="田中工廠設備報修管理戰情監控中心", layout="wide")
-
-# 🔍 檢查軟體是否已經過期
-current_today = pd.Timestamp.now().strftime("%Y-%m-%d")
-if current_today > EXPIRATION_DATE:
-    st.error("❌ 【系統授權已過期】")
-    st.markdown(f"<h2 style='color:#C0392B;'>本系統一週試用期（截止至 {EXPIRATION_DATE}）已屆滿！</h2>", unsafe_allow_html=True)
-    st.markdown("<h3>如需繼續延長使用期限、更新工廠數據或獲取正式版授權，請洽原創開發者：<b style='color:#1E88E5;'>chi</b></h3>", unsafe_allow_html=True)
-    st.stop()
-
-# --- 🔐 密碼保護機制 ---
-def check_password():
-    if "password_correct" not in st.session_state:
-        st.session_state["password_correct"] = False
-    if st.session_state["password_correct"]:
-        return True
-
-    st.markdown("<h3 style='text-align: center; color: #1E88E5; font-weight: bold;'>🏭 田中工廠報修系統 安全登入</h3>", unsafe_allow_html=True)
-    user_password = st.text_input("🔑 請輸入工廠專屬連線密碼", type="password")
-    if st.button("確認登入", type="primary", use_container_width=True):
-        if user_password == st.secrets["app_password"]:
-            st.session_state["password_correct"] = True
-            st.rerun()
-        else:
-            st.error("❌ 密碼錯誤，請重新輸入！")
-    return False
-
-if check_password():
-    # 華麗的前端大標題
-    st.markdown("<h1 style='text-align: center; color: #1E88E5;'>🏭 田中工廠設備報修管理 ➔ 數據可視化戰情監控中心</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #757575;'>人員維度與進度狀態 • 智慧圓餅圖長條圖比例呈現版 (雲端同步安全版)</p>", unsafe_allow_html=True)
-    st.markdown("---")
-
-    # ================== 2. 核心功能：連線 Google 試算表與多行黏合器 ==================
-    @st.cache_data(ttl=3) # 快取 3 秒
-    def load_and_stitch_perfect_rows_cloud_final():
-        try:
-            # 🌟 採用第一案完全成功的憑證解碼機制
-            base64_creds = st.secrets["gcp_service_account_base64"]
-            decoded_bytes = base64.b64decode(base64_creds)
-            creds_json = decoded_bytes.decode("utf-8")
-            creds_dict = json.loads(creds_json)
-            
-            gc = gspread.service_account_from_dict(creds_dict)
-            spreadsheet_url = st.secrets["spreadsheet_url"]
-            spreadsheet = gc.open_by_url(spreadsheet_url)
-            worksheet = spreadsheet.get_worksheet(0) # 預設讀取第一個工作表
-            
-            raw_data = worksheet.get_all_values()
-            if not raw_data:
-                st.error("❌ 雲端 Google 試算表內無任何數據！")
-                return pd.DataFrame()
-                
-            structured_list = []
-            current_case = None
-
-            # 🚀 精確多欄位資料提取 (跳過原本的 D 欄附件)
-            for row in raw_data:
-                if len(row) < 5:
-                    continue
-
-                col_A = str(row[0]).strip() if len(row) > 0 else ""
-                col_B = str(row[1]).strip() if len(row) > 1 else ""
-                col_C = str(row[2]).strip() if len(row) > 2 else ""
-                # 跳過原本的 D 欄附件，直接對接狀態與備註
-                col_E = str(row[4]).strip() if len(row) > 4 else ""
-                col_F = str(row[5]).strip() if len(row) > 5 else ""
-
-                # 跳過空行與標題列
-                if "報修日期" in col_A or col_A == "nan" or col_A == "":
-                    if current_case:
-                        if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
-                        if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
-                        if col_E and col_E != "nan": current_case["目前狀態"] += "\n" + col_E
-                        if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
-                    continue
-
-                # 判定新案件開頭
-                if col_A.startswith("202") or ("202" in col_A and "/" in col_A):
-                    if current_case:
-                        structured_list.append(current_case)
-
-                    current_case = {
-                        "報修日期／單號": col_A, 
-                        "設備名稱": col_B, 
-                        "故障狀況": col_C, 
-                        "目前狀態": col_E, 
-                        "維修進度備註": col_F
-                    }
-                else:
-                    if current_case:
-                        if col_A and col_A != "nan": current_case["報修日期／單號"] += "\n" + col_A
-                        if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
-                        if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
-                        if col_E and col_E != "nan": current_case["目前狀態"] += "\n" + col_E
-                        if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
-
-            if current_case:
-                structured_list.append(current_case)
-
-            clean_df = pd.DataFrame(structured_list)
-
-            if not clean_df.empty:
-                # 智慧提取報修人
-                clean_df["報修人"] = clean_df["報修日期／單號"].apply(lambda x: 
-                    next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202"])), "工廠員工")
-                )
-                
-                # 全局工程師人名純化掃描
-                def clean_engineer_name(status_text):
-                    t = str(status_text)
-                    if "蕭志成" in t: return "蕭志成"
-                    elif "蕭吉義" in t: return "蕭吉義"
-                    elif "葛明輝" in t: return "葛明輝"
-                    
-                    for l in t.split("\n"):
-                        if "承辦" in l:
-                            return l.replace("承辦：", "").replace("承辦:", "").strip()
-                    return "未指派/待審核"
-                    
-                clean_df["承辦人"] = clean_df["目前狀態"].apply(clean_engineer_name)
-                
-                # 四層進度分類
-                def split_status_four_layers(status_text):
-                    t = str(status_text)
-                    if "已完成" in t or "完工" in t: return "已完成"
-                    elif "維修中" in t: return "維修中"
-                    elif "待主管審核" in t: return "待主管審核"
-                    else: return "設備課待處理"
-                    
-                clean_df["精確進度狀態"] = clean_df["目前狀態"].apply(split_status_four_layers)
-
-                # 月份安全提取
-                def extract_month_label(datetime_text):
-                    try:
-                        first_line = str(datetime_text).split("\n")[0].strip()
-                        if "/" in first_line:
-                            parts = first_line.split("/")
-                            return f"{int(parts[1]):02d}月"
-                    except:
-                        pass
-                    return "08月"
-
-                clean_df["報修月份"] = clean_df["報修日期／單號"].apply(extract_month_label)
-
-            return clean_df
-        except Exception as e:
-            st.error(f"❌ 雲端數據讀取或清洗失敗，原因: {e}")
-            return pd.DataFrame()
-
-    df = load_and_stitch_perfect_rows_cloud_final()
     # ================== 3. Streamlit 前端網頁大螢幕呈現 ==================
     if not df.empty:
         total_cases = len(df)
@@ -237,8 +75,45 @@ if check_password():
                 st.info("無數據可顯示長條圖")
 
         st.markdown("---")
-        st.markdown("### 📋 歷史報修詳細清單 (與 Excel 標題 100% 相同對齊版)")
-        # 🌟 附件欄位已完美移除，回歸最乾淨的 5 欄顯示！
-        st.dataframe(filtered_df[["報修日期／單號", "設備名稱", "故障狀況", "目前狀態", "維修進度備註"]], use_container_width=True, height=500)
+        st.markdown("### 📱 歷史報修詳細清單 (手機響應式垂直卡片優化版)")
+        
+        # 🌟 核心改裝：不在手機上顯示大表格，而是將每筆資料轉換為「往下生長」的精美卡片
+        if not filtered_df.empty:
+            for idx, row_data in filtered_df.iterrows():
+                # 根據不同狀態給予卡片左側不同的顏色邊框
+                status_now = row_data["精確進度狀態"]
+                border_color = color_map.get(status_now, "#9E9E9E")
+                
+                # 美化換行文字，將 \n 換成網頁的 <br> 標籤
+                date_box = str(row_data["報修日期／單號"]).replace("\n", "<br>")
+                device_box = str(row_data["設備名稱"]).replace("\n", "<br>")
+                trouble_box = str(row_data["故障狀況"]).replace("\n", "<br>")
+                status_box = str(row_data["目前狀態"]).replace("\n", "<br>")
+                memo_box = str(row_data["維修進度備註"]).replace("\n", "<br>") if row_data["維修進度備註"] else "無備註"
+
+                # 建立純 HTML 手機卡片框架，寬度 100% 自動符合不溢出
+                card_html = f"""
+                <div style='
+                    border-left: 8px solid {border_color}; 
+                    background-color: #F8F9FA; 
+                    padding: 15px; 
+                    border-radius: 5px; 
+                    margin-bottom: 15px; 
+                    box-shadow: 1px 1px 5px rgba(0,0,0,0.05);
+                '>
+                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
+                        <span style='font-size: 13px; color: #666;'>📅 {date_box}</span>
+                        <span style='background-color: {border_color}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;'>{status_now}</span>
+                    </div>
+                    <p style='margin: 5px 0; font-size: 15px;'><b>🛠️ 設備名稱：</b><br>{device_box}</p>
+                    <p style='margin: 5px 0; font-size: 15px;'><b>🚨 故障狀況：</b><br>{trouble_box}</p>
+                    <p style='margin: 5px 0; font-size: 14px; color: #444;'><b>👨‍🔧 目前狀態欄：</b><br>{status_box}</p>
+                    <p style='margin: 5px 0; font-size: 13px; color: #777; background-color: #FFF; padding: 6px; border-radius: 4px; border: 1px dashed #DDD;'><b>📝 維修備註：</b><br>{memo_box}</p>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
+        else:
+            st.info("目前無符合篩選條件的報修案件。")
+            
     else:
         st.warning("⚠️ 數據讀取成功，但清洗過後「無符合判定條件」的案件資料。請確認您的 Google 試算表中 A 欄是否包含標準日期格式 (例如 2026/08/12)。")
