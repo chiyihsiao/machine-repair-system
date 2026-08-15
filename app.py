@@ -61,12 +61,12 @@ if check_password():
             row_url_map = {}
             for r_idx, row_meta in enumerate(grid_data):
                 cells_meta = row_meta.get("values", [])
-                if len(cells_meta) > 3: # 有涵蓋到 D 欄
-                    d_cell = cells_meta[3]
+                if len(cells_meta) > 3: # ✨ 核心修復：確保陣列長度有超過 D 欄 (索引 3)
+                    d_cell = cells_meta[3] # ✨【終極關鍵修正】：精確鎖定第 4 欄（D欄），徹底解放照片超連結！
                     url = d_cell.get("hyperlink", "")
                     text = d_cell.get("formattedValue", "").strip() if d_cell.get("formattedValue") else ""
                     if url:
-                        row_url_map[r_idx] = (text if text else "照片連結", url)
+                        row_url_map[r_idx] = (text if text else "報告圖/照片", url)
 
             structured_list = []
             current_case = None
@@ -76,7 +76,6 @@ if check_password():
                 if not row or len(row) == 0:
                     continue
 
-                # 精確映射後台 A 到 G 欄元素，並使用 row[i] 確保格式完全正確
                 col_A = str(row[0]).strip() if len(row) > 0 else ""  # 報修日期／單號
                 col_B = str(row[1]).strip() if len(row) > 1 else ""  # 設備名稱
                 col_C = str(row[2]).strip() if len(row) > 2 else ""  # 故障狀況
@@ -94,7 +93,7 @@ if check_password():
 
                 has_url = row_url_map.get(idx, None)
 
-                # 💡 智慧判定新案件：只要 A 欄有日期或者 B 欄出現新的設備名稱特徵（解決空白日期案漏抓）
+                # 💡 智慧判定新案件：只要 A 欄有日期或者 B 欄出現新的設備名稱特徵
                 is_new_case = False
                 if col_A and (col_A.startswith("202") or ("202" in col_A and "/" in col_A)):
                     is_new_case = True
@@ -102,11 +101,10 @@ if check_password():
                     is_new_case = True
 
                 if is_new_case:
-                    # 先保存前一個已經黏合完成的案件
                     if current_case:
                         structured_list.append(current_case)
                     
-                    # 初始化新案件，精確把這一行的 B、C 欄主文字寫入！
+                    # 初始化新案件
                     current_case = {
                         "報修日期／單號": col_A if col_A.lower() != "nan" else "", 
                         "設備名稱": col_B if col_B.lower() != "nan" else "", 
@@ -119,7 +117,7 @@ if check_password():
                         "後台處理人員欄": col_G if col_G.lower() != "nan" else ""
                     }
                 else:
-                    # 💡 這是真正文字不小心換行時的「次行黏合資料」
+                    # 💡 這是次行黏合資料
                     if current_case:
                         if col_A and col_A.lower() != "nan": 
                             current_case["報修日期／單號"] += "\n" + col_A
@@ -137,7 +135,6 @@ if check_password():
                         if col_G and col_G.lower() != "nan": 
                             current_case["後台處理人員欄"] += "\n" + col_G
 
-            # 迴圈結束後，存入最後一筆
             if current_case:
                 structured_list.append(current_case)
 
@@ -150,7 +147,7 @@ if check_password():
                     next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202"])), "工廠員工")
                 )
                 
-                # 全局工程師人名純化 (同時比對 E 欄與 G 欄)
+                # 全局工程師人名純化
                 def clean_engineer_name(row_data):
                     g_text = str(row_data.get("後台處理人員欄", "")).strip()
                     e_text = str(row_data.get("currently", "")).strip()
@@ -168,7 +165,7 @@ if check_password():
                     
                 clean_df["承辦人"] = clean_df.apply(clean_engineer_name, axis=1)
                 
-                # 五層進度分類 (完美收納後台截圖的「待驗收」狀態)
+                # 五層進度分類
                 def split_status_five_layers(status_text):
                     t = str(status_text)
                     if "已完成" in t or "完工" in t: return "已完成"
@@ -265,7 +262,7 @@ if check_password():
                 status_now = row_data["精確進度狀態"]
                 border_color = color_map.get(status_now, "#9E9E9E")
                 
-                # ✨【終極防呆文字清洗】全面改用 pd.isna() 判定，徹底解放 B、C 欄與 NaN 雜訊
+                # ✨【終極安全機制】杜絕 Pandas 的 NaN 浮點數干擾文字直顯，百分之百解放 B、C 欄
                 def force_get_text(val, fallback_msg=""):
                     if pd.isna(val) or str(val).strip().lower() == "nan" or str(val).strip() == "":
                         return fallback_msg
@@ -279,7 +276,7 @@ if check_password():
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 🚀 智慧多照片超連結直顯
+                # 🚀 智慧多照片超連結直顯 (已打通 D 欄索引限制)
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
                     try:
