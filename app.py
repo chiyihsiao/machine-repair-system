@@ -48,31 +48,27 @@ if check_password():
             spreadsheet = gc.open_by_url(spreadsheet_url)
             worksheet = spreadsheet.get_worksheet(0)
             
-            # 軌道一 🚀：最穩定的純文字模式，精確撈取所有儲存格文字
             raw_text_data = worksheet.get_all_values()
             if not raw_text_data:
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
                 return pd.DataFrame()
             
-            # 軌道二 🚀：高階向下要求提取底層元數據，用來解鎖一個格子多行、多個超連結
             sheet_data = spreadsheet.fetch_sheet_metadata({"includeGridData": True})
-            grid_data = sheet_data["sheets"][0].get("data", [])[0].get("rowData", [])
+            grid_data = sheet_data["sheets"][0].get("data", [{}])[0].get("rowData", [])
             # 建立一個地圖，存放每一列 D 欄（附件）精確拆解出的超連結清單
             row_url_map = {}
             for r_idx, row_meta in enumerate(grid_data):
                 cells_meta = row_meta.get("values", [])
                 if len(cells_meta) > 3: # 有涵蓋到 D 欄 (索引 3)
-                    d_cell = cells_meta[3]
+                    d_cell = cells_meta
                     formatted_val = d_cell.get("formattedValue", "").strip()
                     
-                    # 排除沒有照片的 "-" 符號
                     if not formatted_val or formatted_val == "-":
                         continue
                         
                     links_found = []
                     text_runs = d_cell.get("textFormatRuns", [])
                     
-                    # ✨【終極多網址解包引擎】：如果一格裡面有換行、多個關鍵字照片連結 (報修圖、完工圖)
                     if text_runs and formatted_val:
                         for i in range(len(text_runs)):
                             start_idx = text_runs[i].get("startIndex", 0)
@@ -82,16 +78,13 @@ if check_password():
                             run_format = text_runs[i].get("format", {})
                             run_url = run_format.get("link", {}).get("uri", "")
                             
-                            # 嚴格篩選：只有當文字出現「圖」或「照片」關鍵字，且網址存在時才撈取
-                            if run_url and any(k in run_text for k in ["圖", "照片", "連結", "報修", "完工"]):
+                            if run_url:
                                 links_found.append((run_text, run_url))
                                 
-                    # 模式 B 退路：若儲存格內是傳統單一標準超連結結構
                     if not links_found:
                         url = d_cell.get("hyperlink", "")
                         if url:
-                            label = formatted_val if formatted_val else "照片連結"
-                            links_found.append((label, url))
+                            links_found.append((formatted_val if formatted_val else "照片連結", url))
                             
                     if links_found:
                         row_url_map[r_idx] = links_found
@@ -99,7 +92,6 @@ if check_password():
             structured_list = []
             current_case = None
 
-            # 🚀 開始進行多行黏合迴圈 (全覆蓋 A 到 G 欄)
             for idx, row in enumerate(raw_text_data):
                 if not row or len(row) == 0:
                     continue
@@ -119,9 +111,8 @@ if check_password():
 
                 has_urls_list = row_url_map.get(idx, [])
 
-                # 💡 智慧判定新案件條件
                 is_new_case = False
-                if col_A and (col_A.startswith("202") or ("202" in col_A and "/") in col_A):
+                if col_A and (col_A.startswith("202") or ("202" in col_A and "/")):
                     is_new_case = True
                 elif col_B and col_B.lower() != "nan" and any(k in col_B for k in ["機", "區", "門", "模", "線"]):
                     is_new_case = True
@@ -134,7 +125,7 @@ if check_password():
                         "報修日期／單號": col_A if col_A.lower() != "nan" else "", 
                         "設備名稱": col_B if col_B.lower() != "nan" else "", 
                         "故障狀況": col_C if col_C.lower() != "nan" else "", 
-                        "圖片連結清單": list(has_urls_list),  # 放入挖到的照片連結陣列
+                        "圖片連結清單": list(has_urls_list),  
                         "currently": col_E if col_E.lower() != "nan" else "",
                         "currently_F": col_F if col_F.lower() != "nan" else "",
                         "目前狀態": col_E if col_E.lower() != "nan" else "", 
@@ -142,20 +133,15 @@ if check_password():
                         "後台處理人員欄": col_G if col_G.lower() != "nan" else ""
                     }
                 else:
-                    # 💡 次行換行黏合資料
                     if current_case:
                         if col_A and col_A.lower() != "nan": current_case["報修日期／單號"] += "\n" + col_A
                         if col_B and "類別" not in col_B and col_B.lower() != "nan": 
                             current_case["設備名稱"] += ("\n" if current_case["設備名稱"] else "") + col_B
                         if col_C and col_C.lower() != "nan": current_case["故障狀況"] += ("\n" if current_case["故障狀況"] else "") + col_C
-                        
-                        # ✨【照片黏合深層去重】：只黏合真正乾淨的 (名稱, 網址) Tuple 物件，杜絕殘留 HTML
                         if has_urls_list:
                             for url_item in has_urls_list:
-                                if isinstance(url_item, (tuple, list)) and len(url_item) == 2:
-                                    if url_item not in current_case["圖片連結清單"] and not str(url_item[1]).startswith("<div"):
-                                        current_case["圖片連結清單"].append(url_item)
-                                        
+                                if url_item not in current_case["圖片連結清單"]:
+                                    current_case["圖片連結清單"].append(url_item)
                         if col_E and col_E.lower() != "nan": 
                             current_case["currently"] = current_case["currently"] + "\n" + col_E
                             current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
@@ -167,7 +153,6 @@ if check_password():
 
             clean_df = pd.DataFrame(structured_list)
 
-            # ================== 資料清洗與特徵工程 ==================
             if not clean_df.empty:
                 clean_df["報修人"] = clean_df["報修日期／單號"].apply(lambda x: 
                     next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202"])), "工廠員工")
@@ -181,8 +166,6 @@ if check_password():
                         if "蕭志成" in t: return "蕭志成"
                         elif "蕭吉義" in t: return "蕭吉義"
                         elif "葛明輝" in t: return "葛明輝"
-                        for l in t.split("\n"):
-                            if "承辦" in l: return l.replace("承辦：", "").replace("承辦:", "").strip()
                     return "未指派/待審核"
                     
                 clean_df["承辦人"] = clean_df.apply(clean_engineer_name, axis=1)
@@ -192,25 +175,16 @@ if check_password():
                     if "已完成" in t or "完工" in t: return "已完成"
                     elif "待驗收" in t: return "待主管審核"
                     elif "維修中" in t: return "維修中"
-                    elif "待主管審核" in t: return "待主管審核"
                     else: return "設備課待處理"
                     
                 clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_five_layers)
 
-                # ✨【智慧月份提取終極安全版】：精確指定 parts[1] 取出月份數字，絕不 int(list) 導致掛掉
                 def extract_month_label(datetime_text):
                     try:
                         first_line = str(datetime_text).split("\n")[0].strip()
                         if "/" in first_line:
                             parts = first_line.split("/")
-                            if len(parts) > 1:
-                                month_num = int(parts[1])
-                                return f"{month_num:02d}月"
-                        elif "-" in first_line:
-                            parts = first_line.split("-")
-                            if len(parts) > 1:
-                                month_num = int(parts[1])
-                                return f"{month_num:02d}月"
+                            return f"{int(parts[1]):02d}月"
                     except:
                         pass
                     return "08月"
@@ -289,20 +263,34 @@ if check_password():
                 status_now = row_data["精確進度狀態"]
                 border_color = color_map.get(status_now, "#9E9E9E")
                 
-                def force_get_text(val, fallback_msg=""):
+                # ✨【超級過濾防護罩】：強力用正規表達式把儲存格內殘留的所有 HTML 標籤徹底刮掉，只留下純中文字！
+                def force_clean_html_tags(val, fallback_msg=""):
                     if pd.isna(val) or str(val).strip().lower() == "nan" or str(val).strip() == "":
                         return fallback_msg
-                    return str(val).replace("\n", "<br>")
+                    txt = str(val)
+                    # 1. 如果包含 <a> 標籤，順便把裡面的網址也挖出來存到圖片連結清單
+                    extracted_urls = re.findall(r'href=[\'"]?([^\'" >]+)', txt)
+                    for url in extracted_urls:
+                        if url and not url.startswith("<div") and (url, label) not in row_data["圖片連結清單"]:
+                            # 智慧研判是完工圖
+                            lbl = "完工圖" if "完工" in txt or "驗收" in txt else "照片連結"
+                            row_data["圖片連結清單"].append((lbl, url))
+                            
+                    # 2. 強力刮除所有 HTML 標籤，還原純文字
+                    clean_txt = re.sub(r'<[^>]*>', '', txt).strip()
+                    # 3. 移除多餘的重複字眼
+                    clean_txt = clean_txt.replace("🔗 點擊觀看 [完工圖] 照片", "").replace("🔗 點擊觀看 [報修圖] 照片", "")
+                    return clean_txt.replace("\n", "<br>").strip()
 
-                date_box = force_get_text(row_data.get("報修日期／單號"), "（未填日期）")
-                device_box = force_get_text(row_data.get("設備名稱"), "（未填設備）")
-                trouble_box = force_get_text(row_data.get("故障狀況"), "（未填狀況）")
-                status_box = force_get_text(row_data.get("目前狀態"), "（無狀態描述）")
-                memo_box = force_get_text(row_data.get("維修進度備註"), "無備註")
+                date_box = force_clean_html_tags(row_data.get("報修日期／單號"), "（未填日期）")
+                device_box = force_get_text = force_clean_html_tags(row_data.get("設備名稱"), "（未填設備）")
+                trouble_box = force_clean_html_tags(row_data.get("故障狀況"), "（未填狀況）")
+                status_box = force_clean_html_tags(row_data.get("目前狀態"), "（無狀態描述）")
+                memo_box = force_clean_html_tags(row_data.get("維修進度備註"), "無備註")
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 🚀 ✨【超完美雙重過濾牆】：切除被二度黏合污染的原始碼，只渲染乾淨的按鈕
+                # 🚀 這裡的相片按鈕會承接剛才從欄位文字裡「洗出來」的乾淨超連結，強制重新生成最純淨的 HTML 按鈕！
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
                     try:
@@ -313,7 +301,6 @@ if check_password():
                                 text_label = str(text_label).replace("\n", "").strip()
                                 link_url = str(link_url).strip()
                                 
-                                # 💡 強制攔截：只要網址裡藏有破碎的 <div> 語法，直接攔截不顯示！
                                 if link_url and not link_url.startswith("<div") and link_url not in seen:
                                     seen.add(link_url)
                                     links_html += f"""
