@@ -56,7 +56,7 @@ if check_password():
             
             # 軌道二 🚀：高階向下要求提取底層元數據，用來解鎖一個格子多行、多個超連結
             sheet_data = spreadsheet.fetch_sheet_metadata({"includeGridData": True})
-            grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
+            grid_data = sheet_data["sheets"][0].get("data", [])[0].get("rowData", [])
             # 建立一個地圖，存放每一列 D 欄（附件）精確拆解出的超連結清單
             row_url_map = {}
             for r_idx, row_meta in enumerate(grid_data):
@@ -148,10 +148,14 @@ if check_password():
                         if col_B and "類別" not in col_B and col_B.lower() != "nan": 
                             current_case["設備名稱"] += ("\n" if current_case["設備名稱"] else "") + col_B
                         if col_C and col_C.lower() != "nan": current_case["故障狀況"] += ("\n" if current_case["故障狀況"] else "") + col_C
+                        
+                        # ✨【照片黏合深層去重】：只黏合真正乾淨的 (名稱, 網址) Tuple 物件，杜絕殘留 HTML
                         if has_urls_list:
                             for url_item in has_urls_list:
-                                if url_item not in current_case["圖片連結清單"]:
-                                    current_case["圖片連結清單"].append(url_item)
+                                if isinstance(url_item, (tuple, list)) and len(url_item) == 2:
+                                    if url_item not in current_case["圖片連結清單"] and not str(url_item[1]).startswith("<div"):
+                                        current_case["圖片連結清單"].append(url_item)
+                                        
                         if col_E and col_E.lower() != "nan": 
                             current_case["currently"] = current_case["currently"] + "\n" + col_E
                             current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
@@ -193,14 +197,14 @@ if check_password():
                     
                 clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_five_layers)
 
-                # ✨【智慧月份提取終極修正版】：修正原本直接 int(list) 導致全站掛掉的驚天 Bug！
+                # ✨【智慧月份提取終極安全版】：精確指定 parts[1] 取出月份數字，絕不 int(list) 導致掛掉
                 def extract_month_label(datetime_text):
                     try:
                         first_line = str(datetime_text).split("\n")[0].strip()
                         if "/" in first_line:
                             parts = first_line.split("/")
                             if len(parts) > 1:
-                                month_num = int(parts[1]) # ✨ 精確讀取陣列索引 1 代表的月份數字，絕對不再崩潰
+                                month_num = int(parts[1])
                                 return f"{month_num:02d}月"
                         elif "-" in first_line:
                             parts = first_line.split("-")
@@ -298,7 +302,7 @@ if check_password():
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 🚀 ✨【超完美富文本相片過濾】只生成乾淨的 HTML 按鈕，徹底封印會出現原始碼的 Bug！
+                # 🚀 ✨【超完美雙重過濾牆】：切除被二度黏合污染的原始碼，只渲染乾淨的按鈕
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
                     try:
@@ -309,7 +313,7 @@ if check_password():
                                 text_label = str(text_label).replace("\n", "").strip()
                                 link_url = str(link_url).strip()
                                 
-                                # 💡 核心過濾機制：如果連結內不小心混進了 <div> 標籤殘留，直接拋棄不渲染！
+                                # 💡 強制攔截：只要網址裡藏有破碎的 <div> 語法，直接攔截不顯示！
                                 if link_url and not link_url.startswith("<div") and link_url not in seen:
                                     seen.add(link_url)
                                     links_html += f"""
