@@ -55,13 +55,13 @@ if check_password():
             
             # 軌道二 🚀：高階向下要求提取底層元數據，用來解鎖一個格子多行、多個超連結
             sheet_data = spreadsheet.fetch_sheet_metadata({"includeGridData": True})
-            grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
+            grid_data = sheet_data["sheets"]["data"].get("rowData", [])
             # 建立一個地圖，存放每一列 D 欄（附件）精確拆解出的超連結清單
             row_url_map = {}
             for r_idx, row_meta in enumerate(grid_data):
                 cells_meta = row_meta.get("values", [])
                 if len(cells_meta) > 3: # 有涵蓋到 D 欄 (索引 3)
-                    d_cell = cells_meta[3]
+                    d_cell = cells_meta
                     formatted_val = d_cell.get("formattedValue", "").strip()
                     
                     # 排除沒有照片的 "-" 符號
@@ -81,15 +81,19 @@ if check_password():
                             run_format = text_runs[i].get("format", {})
                             run_url = run_format.get("link", {}).get("uri", "")
                             
-                            # 嚴格篩選：只有當文字出現「圖」或「照片」關鍵字，且網址存在時才撈取
-                            if run_url and any(k in run_text for k in ["圖", "照片", "連結", "報修", "完工"]):
-                                links_found.append((run_text, run_url))
+                            # 篩選有效網址與合理的文字標籤
+                            if run_url and not run_url.startswith("<div"):
+                                label = run_text if run_text and len(run_text) < 30 else "照片連結"
+                                # 修正不必要的換行空白
+                                label = label.replace("\n", "").strip()
+                                links_found.append((label, run_url))
                                 
                     # 模式 B 退路：若儲存格內是傳統單一標準超連結結構
                     if not links_found:
                         url = d_cell.get("hyperlink", "")
-                        if url:
-                            label = formatted_val if formatted_val else "照片連結"
+                        if url and not url.startswith("<div"):
+                            label = formatted_val if formatted_val and len(formatted_val) < 30 else "照片連結"
+                            label = label.replace("\n", "").strip()
                             links_found.append((label, url))
                             
                     if links_found:
@@ -103,12 +107,12 @@ if check_password():
                 if not row or len(row) == 0:
                     continue
 
-                col_A = str(row[0]).strip() if len(row) > 0 else ""  # 報修日期／單號
-                col_B = str(row[1]).strip() if len(row) > 1 else ""  # 設備名稱
-                col_C = str(row[2]).strip() if len(row) > 2 else ""  # 故障狀況
-                col_E = str(row[4]).strip() if len(row) > 4 else ""  # 目前狀態
-                col_F = str(row[5]).strip() if len(row) > 5 else ""  # 維修進度備註
-                col_G = str(row[6]).strip() if len(row) > 6 else ""  # 處理過程 (G欄)
+                col_A = str(row).strip() if len(row) > 0 else ""  # 報修日期／單號
+                col_B = str(row).strip() if len(row) > 1 else ""  # 設備名稱
+                col_C = str(row).strip() if len(row) > 2 else ""  # 故障狀況
+                col_E = str(row).strip() if len(row) > 4 else ""  # 目前狀態
+                col_F = str(row).strip() if len(row) > 5 else ""  # 維修進度備註
+                col_G = str(row).strip() if len(row) > 6 else ""  # 處理過程 (G欄)
 
                 if not any([col_A, col_B, col_C, col_E, col_F, col_G]):
                     continue
@@ -116,7 +120,6 @@ if check_password():
                 if "報修日期" in col_A or "設備名稱" in col_B or "故障狀況" in col_C:
                     continue
 
-                # 從剛才建立的富文本網址地圖裡，精確對齊列號(idx)抓出照片網址清單
                 has_urls_list = row_url_map.get(idx, [])
 
                 # 💡 智慧判定新案件條件
@@ -148,11 +151,16 @@ if check_password():
                         if col_B and "類別" not in col_B and col_B.lower() != "nan": 
                             current_case["設備名稱"] += ("\n" if current_case["設備名稱"] else "") + col_B
                         if col_C and col_C.lower() != "nan": current_case["故障狀況"] += ("\n" if current_case["故障狀況"] else "") + col_C
+                        
+                        # ✨【修正核心】：在次行黏合照片網址時，進行精確檢查，防止將重複或被污染的 HTML 語法當作網址寫入
                         if has_urls_list:
-                            current_case["圖片連結清單"].extend(has_urls_list) # 多行內藏的照片一併追加進去
+                            for link_item in has_urls_list:
+                                if link_item not in current_case["圖片連結清單"]:
+                                    current_case["圖片連結清單"].append(link_item)
+                                    
                         if col_E and col_E.lower() != "nan": 
                             current_case["currently"] = current_case["currently"] + "\n" + col_E
-                            current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
+                            current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
                         if col_F and col_F.lower() != "nan": current_case["維修進度備註"] += "\n" + col_F
                         if col_G and col_G.lower() != "nan": current_case["後台處理人員欄"] += "\n" + col_G
 
@@ -288,16 +296,19 @@ if check_password():
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 🚀 智慧多照片超連結直顯 (已完美解開 Rich Text 區段，支援多行多關鍵字照片)
+                # 🚀 智慧多照片超連結直顯 (全自動防範 HTML 語法污染)
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
                     try:
                         seen = set()
                         unique_links = []
                         for item in row_data["圖片連結清單"]:
-                            if item and item not in seen:
-                                seen.add(item)
-                                unique_links.append(item)
+                            # 嚴格校驗：必須是 tuple 或 list 格式，且內容不能包含殘留的 HTML 標籤
+                            if item and isinstance(item, (tuple, list)) and len(item) == 2:
+                                text_label, link_url = item
+                                if link_url and not str(link_url).startswith("<div") and link_url not in seen:
+                                    seen.add(link_url)
+                                    unique_links.append((text_label, link_url))
 
                         for text_label, link_url in unique_links:
                             links_html += f"""
