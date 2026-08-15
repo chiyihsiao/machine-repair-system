@@ -54,15 +54,15 @@ if check_password():
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
                 return pd.DataFrame()
             
-            # 軌道二 🚀：高階向下要求提取底層元數據，用來解鎖一個格子多行、多個超連結
+            # 軌道二 🚀：【終極校正】精確鎖定 Sheets 陣列清單的第 0 個工作表與第 0 個資料塊，100% 根除 list indices must be integers 錯誤！
             sheet_data = spreadsheet.fetch_sheet_metadata({"includeGridData": True})
-            grid_data = sheet_data["sheets"]["data"].get("rowData", [])
-            # 建立一個地圖，存放每一列 D 欄（附件）精確拆解出的超連結清單
+            grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
+            # 建立一個地圖，存放每一列 D 欄（附件）精確拆解出的真實超連結網址
             row_url_map = {}
             for r_idx, row_meta in enumerate(grid_data):
                 cells_meta = row_meta.get("values", [])
                 if len(cells_meta) > 3: # 有涵蓋到 D 欄 (索引 3)
-                    d_cell = cells_meta
+                    d_cell = cells_meta[3]
                     formatted_val = d_cell.get("formattedValue", "").strip()
                     
                     if not formatted_val or formatted_val == "-":
@@ -71,7 +71,7 @@ if check_password():
                     links_found = []
                     text_runs = d_cell.get("textFormatRuns", [])
                     
-                    # ✨【終極多網址解包引擎】：如果一格裡面有換行、多個關鍵字照片連結 (報修圖、完工圖)
+                    # ✨【高階富文本實際連結拆解】：如果格子裡有換行或多個區段的照片
                     if text_runs and formatted_val:
                         for i in range(len(text_runs)):
                             start_idx = text_runs[i].get("startIndex", 0)
@@ -81,15 +81,15 @@ if check_password():
                             run_format = text_runs[i].get("format", {})
                             run_url = run_format.get("link", {}).get("uri", "")
                             
-                            # 🚀【黃金關鍵修正】：過濾掉被當成純文字塞進來的破碎 HTML 代碼，確保只抓取真正的超連結網址
+                            # 🚀 強制校正：排除塞在文字裡的破碎 HTML 原始碼，只抓取底層真正的真實超連結（1FYFDxh...）
                             if run_url and not run_url.startswith("<div"):
-                                # 如果文字不小心夾雜了舊的 HTML 標籤，用正規表達式把它剃光，只留下乾淨的「完工圖」字眼
+                                # 用正規表達式刮乾淨標籤裡的任何殘留代碼
                                 clean_label = re.sub(r'<[^>]*>', '', run_text).strip()
                                 clean_label = clean_label.replace("🔗 點擊觀看", "").replace("照片", "").replace("[", "").replace("]", "").strip()
                                 label = clean_label if clean_label else "照片連結"
-                                links_found.append((label, url_item if 'url_item' in locals() else run_url))
+                                links_found.append((label, run_url))
                                 
-                    # 模式 B 退路：若儲存格內是傳統單一標準超連結結構
+                    # 模式 B 退路：若儲存格內是傳統單一綁定的底層超連結結構（1FYFDxh...）
                     if not links_found:
                         url = d_cell.get("hyperlink", "")
                         if url and not url.startswith("<div"):
@@ -108,12 +108,12 @@ if check_password():
                 if not row or len(row) == 0:
                     continue
 
-                col_A = str(row).strip() if len(row) > 0 else ""  # 報修日期／單號
-                col_B = str(row).strip() if len(row) > 1 else ""  # 設備名稱
-                col_C = str(row).strip() if len(row) > 2 else ""  # 故障狀況
-                col_E = str(row).strip() if len(row) > 4 else ""  # 目前狀態
-                col_F = str(row).strip() if len(row) > 5 else ""  # 維修進度備註
-                col_G = str(row).strip() if len(row) > 6 else ""  # 處理過程 (G欄)
+                col_A = str(row[0]).strip() if len(row) > 0 else ""  # 報修日期／單號
+                col_B = str(row[1]).strip() if len(row) > 1 else ""  # 設備名稱
+                col_C = str(row[2]).strip() if len(row) > 2 else ""  # 故障狀況
+                col_E = str(row[4]).strip() if len(row) > 4 else ""  # 目前狀態
+                col_F = str(row[5]).strip() if len(row) > 5 else ""  # 維修進度備註
+                col_G = str(row[6]).strip() if len(row) > 6 else ""  # 處理過程 (G欄)
 
                 if not any([col_A, col_B, col_C, col_E, col_F, col_G]):
                     continue
@@ -195,11 +195,11 @@ if check_password():
 
                 def extract_month_label(datetime_text):
                     try:
-                        first_line = str(datetime_text).split("\n").strip()
+                        first_line = str(datetime_text).split("\n")[0].strip()
                         if "/" in first_line:
                             parts = first_line.split("/")
                             if len(parts) > 1:
-                                return f"{int(parts):02d}月"
+                                return f"{int(parts[1]):02d}月"
                     except:
                         pass
                     return "08月"
@@ -294,7 +294,7 @@ if check_password():
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 🚀 這裡完美對齊實際超連結 (https://drive.google.com/file/d/1FYFDxh...) 生成純淨無污染的按鈕！
+                # 🚀 這裡完美對齊實際超連結 (1FYFDxh...)，強制只生成最乾淨的 HTML 按鈕！
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
                     try:
@@ -303,7 +303,7 @@ if check_password():
                             if isinstance(item, (tuple, list)) and len(item) == 2:
                                 text_label, link_url = item
                                 
-                                # 💡 智慧校正：如果標籤是怪異的長串，強制校正為乾淨的「完工圖」或「報修圖」
+                                # 智慧校正標籤文字，防止帶入髒字
                                 text_label = str(text_label).replace("\n", "").strip()
                                 if "完工" in text_label or "驗收" in status_box:
                                     text_label = "完工圖"
