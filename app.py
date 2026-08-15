@@ -15,7 +15,7 @@ current_today = pd.Timestamp.now().strftime("%Y-%m-%d")
 if current_today > EXPIRATION_DATE:
     st.error("❌ 【系統授權已過期】")
     st.markdown(f"<h2 style='color:#C0392B;'>本系統一週試用期（截止至 {EXPIRATION_DATE}）已屆滿！</h2>", unsafe_allow_html=True)
-    st.markdown("<h3>如需繼續延長使用期限、更新工廠數據或獲取正式版授權，請洽原創開發者：<b style='color:#1E88E5;'>chi</b></h3>", unsafe_allow_html=True)
+    st.markdown("<h3>如需繼續延長使用期限、更新工廠數據或獲取正式版授權，請洽原創开发者：<b style='color:#1E88E5;'>chi</b></h3>", unsafe_allow_html=True)
     st.stop()
 
 # 華麗的前端大標題
@@ -51,7 +51,7 @@ def load_and_stitch_perfect_rows_cloud_final():
         current_case = None
 
         for _, row in raw_df.iterrows():
-            if len(row) < 5:
+            if len(row) < 6: # 確保至少有 A 到 F 欄
                 continue
 
             # 精確抓取 A 到 F 欄
@@ -60,7 +60,7 @@ def load_and_stitch_perfect_rows_cloud_final():
             col_C = str(row[2]).strip()
             col_D = str(row[3]).strip()
             col_E = str(row[4]).strip()
-            col_F = str(row[5]).strip() if len(row) > 5 else ""
+            col_F = str(row[5]).strip()
 
             # 跳過前 7 列的完全空行與欄位標題
             if "報修日期" in col_A or col_A == "nan" or col_A == "":
@@ -68,7 +68,7 @@ def load_and_stitch_perfect_rows_cloud_final():
                     if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                     if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
                     if col_D and col_D != "nan": current_case["附件"] += "\n" + col_D
-                    if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
+                    if col_E and col_E != "nan": current_case["目前狀態"] += "\n" + col_E
                     if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
                 continue
 
@@ -91,7 +91,7 @@ def load_and_stitch_perfect_rows_cloud_final():
                     if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                     if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
                     if col_D and col_D != "nan": current_case["附件"] += "\n" + col_D
-                    if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["currently"] + "\n" + col_E
+                    if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
                     if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
 
         if current_case:
@@ -127,7 +127,7 @@ def load_and_stitch_perfect_rows_cloud_final():
                 elif "待主管審核" in t: return "待主管審核"
                 else: return "設備課待處理"
                 
-            clean_df["精確進度狀態"] = clean_df["目前狀態"].apply(split_status_four_layers)
+            clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_four_layers) if "currently" in clean_df.columns else clean_df["目前狀態"].apply(split_status_four_layers)
 
             # 月份安全提取
             def extract_month_label(datetime_text):
