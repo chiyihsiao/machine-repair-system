@@ -1,6 +1,5 @@
 import base64
 import json
-import re
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -11,7 +10,7 @@ st.set_page_config(page_title="田中工廠設備報修管理戰情監控中心"
 
 # 華麗的前端大標題
 st.markdown("<h1 style='text-align: center; color: #1E88E5;'>🏭 田中工廠設備報修管理 ➔ 數據可視化戰情監控中心</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #757575;'>人員維度與進度狀態 • 智慧圓餅圖長條圖比例呈現版 (雲端同步照片直顯永久版)</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #757575;'>人員維度與進度狀態 • 智慧圓餅圖長條圖比例呈現版 (雲端同步照片超連結完美版)</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 # --- 🔐 密碼保護機制 ---
@@ -38,7 +37,6 @@ if check_password():
     @st.cache_data(ttl=3) # 快取 3 秒
     def load_and_stitch_perfect_rows_cloud_final():
         try:
-            # 🌟 採用憑證解碼機制
             base64_creds = st.secrets["gcp_service_account_base64"]
             decoded_bytes = base64.b64decode(base64_creds)
             creds_json = decoded_bytes.decode("utf-8")
@@ -47,49 +45,45 @@ if check_password():
             gc = gspread.service_account_from_dict(creds_dict)
             spreadsheet_url = st.secrets["spreadsheet_url"]
             spreadsheet = gc.open_by_url(spreadsheet_url)
-            worksheet = spreadsheet.get_worksheet(0) # 預設讀取第一個工作表
+            worksheet = spreadsheet.get_worksheet(0)
             
-            # 🚀 終極改裝：使用 FORMULA 模式讀取，才能挖出 =HYPERLINK("網址", "顯示文字") 的內容
-            raw_data_formulas = worksheet.get_all_values(value_render_option="FORMULA")
-            if not raw_data_formulas:
-                st.error("❌ 雲端 Google 試算表內無任何數據！")
-                return pd.DataFrame()
-                
+            # 🚀 終極大改寫：不再使用單純文字讀取，改用 fetch_sheet_metadata 解析最底層超連結
+            sheet_data = worksheet.spreadsheet.fetch_sheet_metadata({"includeGridData": True})
+            grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
+            
             structured_list = []
             current_case = None
 
-            # 輔助函式：從公式中精確提取真正的網址
-            def extract_url_from_formula(cell_text):
-                text_str = str(cell_text).strip()
-                if "HYPERLINK" in text_str:
-                    urls = re.findall(r'"(https?://[^"]+)"', text_str)
-                    if urls:
-                        return urls[0]
-                return ""
-
-            # 🚀 重新精確讀取所有欄位（包含 D 欄附件）
-            for row in raw_data_formulas:
-                if len(row) < 5:
+            # 🚀 精確逐列逐欄解析 (相容多行黏合)
+            for row_idx, row in enumerate(grid_data):
+                values = row.get("values", [])
+                if len(values) < 5:
                     continue
+                
+                # 安全提取每個格子的純文字與隱藏超連結
+                def get_cell_info(cell_obj):
+                    text = cell_obj.get("formattedValue", "").strip()
+                    url = cell_obj.get("hyperlink", "")
+                    return text, url
 
-                col_A = str(row[0]).strip() if len(row) > 0 else ""
-                col_B = str(row[1]).strip() if len(row) > 1 else ""
-                col_C = str(row[2]).strip() if len(row) > 2 else ""
-                col_D_raw = str(row[3]).strip() if len(row) > 3 else "" # 這是未處理的 D 欄公式
-                col_E = str(row[4]).strip() if len(row) > 4 else ""
-                col_F = str(row[5]).strip() if len(row) > 5 else ""
-
-                # 處理附件欄文字與網址
-                img_url = extract_url_from_formula(col_D_raw)
+                col_A, _ = get_cell_info(values[0]) if len(values) > 0 else ("", "")
+                col_B, _ = get_cell_info(values[1]) if len(values) > 1 else ("", "")
+                col_C, _ = get_cell_info(values[2]) if len(values) > 2 else ("", "")
+                
+                # 🎯 附件 D 欄：同時抓取文字與真正的隱藏網址！
+                col_D_text, col_D_url = get_cell_info(values[3]) if len(values) > 3 else ("", "")
+                
+                col_E, _ = get_cell_info(values[4]) if len(values) > 4 else ("", "")
+                col_F, _ = get_cell_info(values[5]) if len(values) > 5 else ("", "")
 
                 # 跳過空行與標題列
                 if "報修日期" in col_A or col_A == "nan" or col_A == "":
                     if current_case:
-                        if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
-                        if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
-                        if img_url: current_case["圖片連結"] = img_url # 如果多行中有包含網址就保留
-                        if col_E and col_E != "nan": current_case["目前狀態"] += "\n" + col_E
-                        if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
+                        if col_B and "類別" not in col_B: current_case["設備名稱"] += "\n" + col_B
+                        if col_C: current_case["故障狀況"] += "\n" + col_C
+                        if col_D_url: current_case["圖片連結清單"].append((col_D_text if col_D_text else "點我觀看", col_D_url))
+                        if col_E: current_case["目前狀態"] += "\n" + col_E
+                        if col_F: current_case["維修進度備註"] += "\n" + col_F
                     continue
 
                 # 判定新案件開頭
@@ -101,18 +95,18 @@ if check_password():
                         "報修日期／單號": col_A, 
                         "設備名稱": col_B, 
                         "故障狀況": col_C, 
-                        "圖片連結": img_url, # 新增存放真正的雲端照片網址
+                        "圖片連結清單": [(col_D_text if col_D_text else "點我觀看", col_D_url)] if col_D_url else [],
                         "目前狀態": col_E, 
                         "維修進度備註": col_F
                     }
                 else:
                     if current_case:
-                        if col_A and col_A != "nan": current_case["報修日期／單號"] += "\n" + col_A
-                        if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
-                        if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
-                        if img_url: current_case["圖片連結"] = img_url
-                        if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
-                        if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
+                        if col_A: current_case["報修日期／單號"] += "\n" + col_A
+                        if col_B and "類別" not in col_B: current_case["設備名稱"] += "\n" + col_B
+                        if col_C: current_case["故障狀況"] += "\n" + col_C
+                        if col_D_url: current_case["圖片連結清單"].append((col_D_text if col_D_text else "點我觀看", col_D_url))
+                        if col_E: current_case["目前狀態"] += "\n" + col_E
+                        if col_F: current_case["維修進度備註"] += "\n" + col_F
 
             if current_case:
                 structured_list.append(current_case)
@@ -125,13 +119,12 @@ if check_password():
                     next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202"])), "工廠員工")
                 )
                 
-                # 全局工程師人名純化
+                # 工程師姓名純化
                 def clean_engineer_name(status_text):
                     t = str(status_text)
                     if "蕭志成" in t: return "蕭志成"
                     elif "蕭吉義" in t: return "蕭吉義"
                     elif "葛明輝" in t: return "葛明輝"
-                    
                     for l in t.split("\n"):
                         if "承辦" in l:
                             return l.replace("承辦：", "").replace("承辦:", "").strip()
@@ -139,7 +132,6 @@ if check_password():
                     
                 clean_df["承辦人"] = clean_df["目前狀態"].apply(clean_engineer_name)
                 
-                # 四層進度分類
                 def split_status_four_layers(status_text):
                     t = str(status_text)
                     if "已完成" in t or "完工" in t: return "已完成"
@@ -149,14 +141,12 @@ if check_password():
                     
                 clean_df["精確進度狀態"] = clean_df["目前狀態"].apply(split_status_four_layers)
 
-                # 月份安全提取
                 def extract_month_label(datetime_text):
                     try:
                         first_line = str(datetime_text).split("\n")[0].strip()
                         if "/" in first_line:
                             parts = first_line.split("/")
-                            month_num = int(parts[1])
-                            return f"{month_num:02d}月"
+                            return f"{int(parts[1]):02d}月"
                     except:
                         pass
                     return "08月"
@@ -259,14 +249,15 @@ if check_password():
                 status_box = str(row_data["目前狀態"]).replace("\n", "<br>")
                 memo_box = str(row_data["維修進度備註"]).replace("\n", "<br>") if row_data["維修進度備註"] else "無備註"
                 
-                # 🚀 智慧照片按鈕建構
-                photo_html = ""
-                if row_data["圖片連結"]:
-                    photo_html = f"""
-                    <div style='margin-top: 12px; background-color: #E3F2FD; padding: 10px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center;'>
-                        <a href='{row_data["圖片連結"]}' target='_blank' style='color: #0D47A1; text-decoration: none; font-size: 14px; font-weight: bold;'>🖼️ 點擊在新分頁看現場報修/完工圖</a>
-                    </div>
-                    """
+                # 🚀 智慧多照片按鈕動態生成
+                links_html = ""
+                if row_data["圖片連結清單"]:
+                    for text_label, link_url in row_data["圖片連結清單"]:
+                        links_html += f"""
+                        <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
+                            <a href='{link_url}' target='_blank' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>🖼️ 開啟 [{text_label}] 照片</a>
+                        </div>
+                        """
 
                 card_html = f"""
                 <div style='
@@ -285,7 +276,7 @@ if check_password():
                     <p style='margin: 5px 0; font-size: 15px;'><b>🚨 故障狀況：</b><br>{trouble_box}</p>
                     <p style='margin: 5px 0; font-size: 14px; color: #444;'><b>👨‍🔧 目前狀態欄：</b><br>{status_box}</p>
                     <p style='margin: 5px 0; font-size: 13px; color: #777; background-color: #FFF; padding: 6px; border-radius: 4px; border: 1px dashed #DDD;'><b>📝 維修備註：</b><br>{memo_box}</p>
-                    {photo_html}
+                    <div style='margin-top: 10px;'>{links_html}</div>
                 </div>
                 """
                 st.markdown(card_html, unsafe_allow_html=True)
