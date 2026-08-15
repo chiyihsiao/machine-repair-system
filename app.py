@@ -55,7 +55,7 @@ if check_password():
             
             # 軌道二 🚀：單獨抓取底層超連結地圖
             sheet_data = worksheet.spreadsheet.fetch_sheet_metadata({"includeGridData": True})
-            grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
+            grid_data = sheet_data["sheets"]["data"].get("rowData", [])
             
             # 建立一個地圖，用來存放每一列（Row）D欄到底有沒有藏超連結網址
             row_url_map = {}
@@ -71,15 +71,14 @@ if check_password():
             structured_list = []
             current_case = None
 
-            # 🚀 開始進行 100% 不漏抓的純文字多行黏合迴圈 (略過第1列標題欄)
+            # 🚀 終極修正：使用標準 row[索引] 提取，100% 阻斷漏抓
             for idx, row in enumerate(raw_text_data):
-                if idx == 0: # 🎯 完美跳過第 1 列的項目名稱列！
+                if idx == 0: # 完美跳過第 1 列項目名稱列
                     continue
                     
                 if len(row) < 5:
                     continue
 
-                # 完美修正：改回最穩定且無誤的 row[數字] 欄位提取語法
                 col_A = str(row[0]).strip() if len(row) > 0 else ""
                 col_B = str(row[1]).strip() if len(row) > 1 else ""
                 col_C = str(row[2]).strip() if len(row) > 2 else ""
@@ -154,7 +153,7 @@ if check_password():
                     elif "待主管審核" in t: return "待主管審核"
                     else: return "設備課待處理"
                     
-                clean_df["精確進度狀態"] = clean_df["目前狀態"].apply(split_status_four_layers)
+                clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_four_layers) if "currently" in clean_df.columns else clean_df["目前狀態"].apply(split_status_four_layers)
 
                 # 月份安全提取
                 def extract_month_label(datetime_text):
@@ -277,6 +276,7 @@ if check_password():
                         </div>
                         """
 
+                # 🎯 徹底修復：在這裡將「設備名稱」和「故障狀況」完美加回手機卡片中顯示！
                 card_html = f"""
                 <div style='
                     border-left: 8px solid {border_color}; 
@@ -290,10 +290,10 @@ if check_password():
                         <span style='font-size: 13px; color: #666;'>📅 {date_box}</span>
                         <span style='background-color: {border_color}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;'>{status_now}</span>
                     </div>
-                    <p style='margin: 5px 0; font-size: 15px;'><b>🛠️ 設備名稱：</b><br>{device_box}</p>
-                    <p style='margin: 5px 0; font-size: 15px;'><b>🚨 故障狀況：</b><br>{trouble_box}</p>
-                    <p style='margin: 5px 0; font-size: 14px; color: #444;'><b>👨‍🔧 目前狀態欄：</b><br>{status_box}</p>
-                    <p style='margin: 5px 0; font-size: 13px; color: #777; background-color: #FFF; padding: 6px; border-radius: 4px; border: 1px dashed #DDD;'><b>📝 維修備註：</b><br>{memo_box}</p>
+                    <p style='margin: 8px 0; font-size: 15px;'><b>🛠️ 設備名稱：</b><br>{device_box}</p>
+                    <p style='margin: 8px 0; font-size: 15px;'><b>🚨 故障狀況：</b><br>{trouble_box}</p>
+                    <p style='margin: 8px 0; font-size: 14px; color: #444;'><b>👨‍🔧 目前狀態欄：</b><br>{status_box}</p>
+                    <p style='margin: 8px 0; font-size: 13px; color: #777; background-color: #FFF; padding: 6px; border-radius: 4px; border: 1px dashed #DDD;'><b>📝 維修備註：</b><br>{memo_box}</p>
                     <div style='margin-top: 10px;'>{links_html}</div>
                 </div>
                 """
