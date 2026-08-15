@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -47,57 +48,52 @@ if check_password():
             spreadsheet = gc.open_by_url(spreadsheet_url)
             worksheet = spreadsheet.get_worksheet(0)
             
-            # 軌道一 🚀：抓取所有純文字列
-            raw_text_data = worksheet.get_all_values()
-            if not raw_text_data:
+            # 🚀 回歸最穩定的寫法：開啟 FORMULA 公式讀取模式，安全又不會造成文字漏抓！
+            raw_data = worksheet.get_all_values(value_render_option="FORMULA")
+            if not raw_data:
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
                 return pd.DataFrame()
             
-            # 軌道二 🚀：單獨抓取底層超連結地圖
-            sheet_data = worksheet.spreadsheet.fetch_sheet_metadata({"includeGridData": True})
-            grid_data = sheet_data["sheets"]["data"].get("rowData", [])
-            
-            # 建立一個地圖，用來存放每一列（Row）D欄到底有沒有藏超連結網址
-            row_url_map = {}
-            for r_idx, row_meta in enumerate(grid_data):
-                cells_meta = row_meta.get("values", [])
-                if len(cells_meta) > 3: # 有到 D 欄
-                    d_cell = cells_meta[3]
-                    url = d_cell.get("hyperlink", "")
-                    text = d_cell.get("formattedValue", "").strip()
-                    if url:
-                        row_url_map[r_idx] = (text if text else "照片連結", url)
-
             structured_list = []
             current_case = None
 
-            # 🚀 終極修正：使用標準 row[索引] 提取，100% 阻斷漏抓
-            for idx, row in enumerate(raw_text_data):
-                if idx == 0: # 完美跳過第 1 列項目名稱列
+            # 🚀 100% 準確的多行純文字黏合迴圈 (從第 2 列開始讀取)
+            for idx, row in enumerate(raw_data):
+                if idx == 0: # 跳過第 1 列的標題項目欄
                     continue
                     
                 if len(row) < 5:
                     continue
 
+                # 🎯 絕對不會再錯！使用最純粹的陣列索引提取
                 col_A = str(row[0]).strip() if len(row) > 0 else ""
                 col_B = str(row[1]).strip() if len(row) > 1 else ""
                 col_C = str(row[2]).strip() if len(row) > 2 else ""
+                col_D = str(row[3]).strip() if len(row) > 3 else "" # 這是 D 欄公式文字
                 col_E = str(row[4]).strip() if len(row) > 4 else ""
                 col_F = str(row[5]).strip() if len(row) > 5 else ""
 
-                has_url = row_url_map.get(idx, None)
+                # 🛠️ 智慧文字解析：從公式 =HYPERLINK("網址", "顯示字") 中把照片連結挖出來
+                photo_label = ""
+                photo_url = ""
+                if "HYPERLINK" in col_D:
+                    urls = re.findall(r'"(https?://[^"]+)"', col_D)
+                    labels = re.findall(r',[^"\')]*"([^"]+)"', col_D) or re.findall(r',[^"\')]*\'([^\']+)\'', col_D)
+                    if urls:
+                        photo_url = urls[0]
+                        photo_label = labels[0] if labels else "查看照片"
 
-                # 跳過多行空行
+                # 判定這列是不是「多行黏合的延伸空行」
                 if col_A == "nan" or col_A == "":
                     if current_case:
                         if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                         if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
-                        if has_url: current_case["圖片連結清單"].append(has_url)
+                        if photo_url: current_case["圖片連結清單"].append((photo_label, photo_url))
                         if col_E and col_E != "nan": current_case["目前狀態"] += "\n" + col_E
                         if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
                     continue
 
-                # 🌟 核心：判定這列是不是「新案件的開頭」
+                # 🌟 判定這列是不是「新案件的開頭」
                 if col_A.startswith("202") or ("202" in col_A and "/" in col_A) or "預計" in col_A:
                     if current_case:
                         structured_list.append(current_case)
@@ -106,7 +102,7 @@ if check_password():
                         "報修日期／單號": col_A, 
                         "設備名稱": col_B, 
                         "故障狀況": col_C, 
-                        "圖片連結清單": [has_url] if has_url else [],
+                        "圖片連結清單": [(photo_label, photo_url)] if photo_url else [],
                         "currently": col_E,
                         "目前狀態": col_E, 
                         "維修進度備註": col_F
@@ -116,7 +112,7 @@ if check_password():
                         if col_A and col_A != "nan": current_case["報修日期／單號"] += "\n" + col_A
                         if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                         if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
-                        if has_url: current_case["圖片連結清單"].append(has_url)
+                        if photo_url: current_case["圖片連結清單"].append((photo_label, photo_url))
                         if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
                         if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
 
@@ -143,7 +139,7 @@ if check_password():
                             return l.replace("承辦：", "").replace("承辦:", "").strip()
                     return "未指派/待審核"
                     
-                clean_df["承辦人"] = clean_df["目前狀態"].apply(clean_engineer_name)
+                clean_df["承辦人"] = clean_df["currently"].apply(clean_engineer_name) if "currently" in clean_df.columns else clean_df["目前狀態"].apply(clean_engineer_name)
                 
                 # 四層進度分類
                 def split_status_four_layers(status_text):
@@ -270,13 +266,13 @@ if check_password():
                 if row_data["圖片連結清單"]:
                     unique_links = list(dict.fromkeys(row_data["圖片連結清單"]))
                     for text_label, link_url in unique_links:
-                        links_html += f"""
-                        <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
-                            <a href='{link_url}' target='_blank' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>🔗 點擊觀看 [{text_label}] 照片</a>
-                        </div>
-                        """
+                        if link_url:
+                            links_html += f"""
+                            <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
+                                <a href='{link_url}' target='_blank' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>🔗 點擊觀看 [{text_label}] 照片</a>
+                            </div>
+                            """
 
-                # 🎯 徹底修復：在這裡將「設備名稱」和「故障狀況」完美加回手機卡片中顯示！
                 card_html = f"""
                 <div style='
                     border-left: 8px solid {border_color}; 
