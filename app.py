@@ -54,10 +54,16 @@ if check_password():
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
                 return pd.DataFrame()
             
-            # 軌道二 🚀：【終極校正】精確鎖定 Sheets 陣列清單的第 0 個工作表與第 0 個資料塊，100% 根除 list indices must be integers 錯誤！
+            # 軌道二 🚀：高階向下要求提取底層元數據，用來解鎖一個格子多行、多個超連結
             sheet_data = spreadsheet.fetch_sheet_metadata({"includeGridData": True})
-            grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
-            # 建立一個地圖，存放每一列 D 欄（附件）精確拆解出的真實超連結網址
+            
+            # API 結構安全對齊層（完美避開 List 結構中斷錯誤）
+            grid_data = []
+            if "sheets" in sheet_data and len(sheet_data["sheets"]) > 0:
+                sheet_zero = sheet_data["sheets"][0]
+                if "data" in sheet_zero and len(sheet_zero["data"]) > 0:
+                    grid_data = sheet_zero["data"][0].get("rowData", [])
+            # 建立一個地圖，存放每一列 D 欄（附件）精確拆解出的超連結清單
             row_url_map = {}
             for r_idx, row_meta in enumerate(grid_data):
                 cells_meta = row_meta.get("values", [])
@@ -71,7 +77,6 @@ if check_password():
                     links_found = []
                     text_runs = d_cell.get("textFormatRuns", [])
                     
-                    # ✨【高階富文本實際連結拆解】：如果格子裡有換行或多個區段的照片
                     if text_runs and formatted_val:
                         for i in range(len(text_runs)):
                             start_idx = text_runs[i].get("startIndex", 0)
@@ -81,21 +86,13 @@ if check_password():
                             run_format = text_runs[i].get("format", {})
                             run_url = run_format.get("link", {}).get("uri", "")
                             
-                            # 🚀 強制校正：排除塞在文字裡的破碎 HTML 原始碼，只抓取底層真正的真實超連結（1FYFDxh...）
                             if run_url and not run_url.startswith("<div"):
-                                # 用正規表達式刮乾淨標籤裡的任何殘留代碼
-                                clean_label = re.sub(r'<[^>]*>', '', run_text).strip()
-                                clean_label = clean_label.replace("🔗 點擊觀看", "").replace("照片", "").replace("[", "").replace("]", "").strip()
-                                label = clean_label if clean_label else "照片連結"
-                                links_found.append((label, run_url))
+                                links_found.append((run_text if run_text else "附件照片", run_url))
                                 
-                    # 模式 B 退路：若儲存格內是傳統單一綁定的底層超連結結構（1FYFDxh...）
                     if not links_found:
                         url = d_cell.get("hyperlink", "")
                         if url and not url.startswith("<div"):
-                            clean_label = re.sub(r'<[^>]*>', '', formatted_val).strip()
-                            clean_label = clean_label.replace("🔗 點擊觀看", "").replace("照片", "").replace("[", "").replace("]", "").strip()
-                            links_found.append((clean_label if clean_label else "照片連結", url))
+                            links_found.append((formatted_val if formatted_val else "照片連結", url))
                             
                     if links_found:
                         row_url_map[r_idx] = links_found
@@ -122,7 +119,6 @@ if check_password():
                     continue
 
                 has_urls_list = row_url_map.get(idx, [])
-
                 is_new_case = False
                 if col_A and (col_A.startswith("202") or ("202" in col_A and "/")):
                     is_new_case = True
@@ -178,8 +174,6 @@ if check_password():
                         if "蕭志成" in t: return "蕭志成"
                         elif "蕭吉義" in t: return "蕭吉義"
                         elif "葛明輝" in t: return "葛明輝"
-                        for l in t.split("\n"):
-                            if "承辦" in l: return l.replace("承辦：", "").replace("承辦:", "").strip()
                     return "未指派/待審核"
                     
                 clean_df["承辦人"] = clean_df.apply(clean_engineer_name, axis=1)
@@ -278,44 +272,62 @@ if check_password():
                 status_now = row_data["精確進度狀態"]
                 border_color = color_map.get(status_now, "#9E9E9E")
                 
-                # ✨【終極防刮過濾牆】：強力用正規表達式把儲存格內殘留的所有 HTML 標籤徹底刮掉，只留下純中文字！
-                def force_clean_html_tags(val, fallback_msg=""):
+                # ✨【終極網址回收與洗滌引擎】：同時處理「文字刮除標籤」與「隱藏網址資源回收」！
+                def force_get_text_clean_and_salvage(column_name, fallback_msg=""):
+                    val = row_data.get(column_name, "")
                     if pd.isna(val) or str(val).strip().lower() == "nan" or str(val).strip() == "":
                         return fallback_msg
                     txt = str(val)
-                    clean_txt = re.sub(r'<[^>]*>', '', txt).strip()
-                    return clean_txt.replace("\n", "<br>").strip()
+                    
+                    # 🚀【超智慧資源回收】：掃描文字欄位，如果發現夾雜了 HTML 程式碼，自動把真網址挖出來！
+                    found_drive_urls = re.findall(r'href=[\'"]?([^\'" >]+)', txt)
+                    if not found_drive_urls:
+                        found_drive_urls = re.findall(r'(https?://[^\s"\'\)]+)', txt)
+                        
+                    for url in found_drive_urls:
+                        url_clean = str(url).split("?")[0].strip() if "?" in str(url) else str(url).strip()
+                        if url_clean and not url_clean.startswith("<div") and "://google.com" in url_clean:
+                            lbl = "完工圖" if "完工" in txt or "驗收" in txt else "報修圖"
+                            if (lbl, url_clean) not in row_data["圖片連結清單"]:
+                                row_data["圖片連結清單"].append((lbl, url_clean))
+                                
+                    # 🚀【標籤強力洗滌】：網址回收完畢後，把整格文字的 HTML 原始碼一刀兩斷、徹底抹除！
+                    txt = re.sub(r'<div style=.*?</div>', '', txt, flags=re.DOTALL)
+                    txt = re.sub(r'<[^>]*>', '', txt).strip()  
+                    return txt.replace("\n", "<br>")
 
-                date_box = force_clean_html_tags(row_data.get("報修日期／單號"), "（未填日期）")
-                device_box = force_clean_html_tags(row_data.get("設備名稱"), "（未填設備）")
-                trouble_box = force_clean_html_tags(row_data.get("故障狀況"), "（未填狀況）")
-                status_box = force_clean_html_tags(row_data.get("目前狀態"), "（無狀態描述）")
-                memo_box = force_clean_html_tags(row_data.get("維修進度備註"), "無備註")
+                date_box = force_get_text_clean_and_salvage("報修日期／單號", "（未填日期）")
+                device_box = force_get_text_clean_and_salvage("設備名稱", "（未填設備）")
+                trouble_box = force_get_text_clean_and_salvage("故障狀況", "（未填狀況）")
+                status_box = force_get_text_clean_and_salvage("目前狀態", "（無狀態描述）")
+                memo_box = force_get_text_clean_and_salvage("維修進度備註", "無備註")
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 🚀 這裡完美對齊實際超連結 (1FYFDxh...)，強制只生成最乾淨的 HTML 按鈕！
+                # 🚀 這裡完美承接回收出來的乾淨超連結，重新封裝生成精美的 HTML 藍色按鈕！
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
                     try:
-                        seen = set()
+                        seen_urls = set()
                         for item in row_data["圖片連結清單"]:
                             if isinstance(item, (tuple, list)) and len(item) == 2:
                                 text_label, link_url = item
-                                
-                                # 智慧校正標籤文字，防止帶入髒字
-                                text_label = str(text_label).replace("\n", "").strip()
-                                if "完工" in text_label or "驗收" in status_box:
-                                    text_label = "完工圖"
-                                elif "報修" in text_label or "狀況" in trouble_box:
-                                    text_label = "報修圖"
-                                else:
-                                    text_label = "照片附件"
-                                    
                                 link_url = str(link_url).strip()
                                 
-                                if link_url and not link_url.startswith("<div") and link_url not in seen:
-                                    seen.add(link_url)
+                                file_id_match = re.search(r'/d/([^/]+)', link_url)
+                                unique_key = file_id_match.group(1) if file_id_match else link_url
+                                
+                                if link_url and not link_url.startswith("<div") and unique_key not in seen_urls:
+                                    seen_urls.add(unique_key)
+                                    
+                                    text_label = str(text_label).replace("\n", "").strip()
+                                    if "完工" in text_label or "完工" in link_url:
+                                        text_label = "完工圖"
+                                    elif "報修" in text_label or "報修" in link_url:
+                                        text_label = "報修圖"
+                                    else:
+                                        text_label = "照片附件"
+                                        
                                     links_html += f"""
                                     <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
                                         <a href='{link_url}' target='_blank' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>🔗 點擊觀看 [{text_label}] 照片</a>
@@ -338,7 +350,6 @@ if check_password():
                     <div style='margin-top: 10px;'>{links_html}</div>
                 </div>
                 """
-                st.markdown(card_html, unsafe_allow_html=True)
         else:
             st.info("目前無符合篩選條件的報修案件。")
             
