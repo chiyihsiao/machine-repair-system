@@ -48,7 +48,7 @@ if check_password():
             spreadsheet = gc.open_by_url(spreadsheet_url)
             worksheet = spreadsheet.get_worksheet(0)
             
-            # 開啟 FORMULA 模式完整讀取
+            # 開啟 FORMULA 公式讀取模式
             raw_data = worksheet.get_all_values(value_render_option="FORMULA")
             if not raw_data:
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
@@ -57,7 +57,7 @@ if check_password():
             structured_list = []
             current_case = None
 
-            # 🚀 徹底修正：使用標準 row[索引] 分欄提取，絕對不再錯位漏抓
+            # 🚀 100% 導正：使用標準 row[索引] 提取，徹底根除錯位與漏抓
             for idx, row in enumerate(raw_data):
                 if idx == 0: # 跳過第 1 列項目名稱標題
                     continue
@@ -65,7 +65,7 @@ if check_password():
                 if len(row) < 5:
                     continue
 
-                # 🎯【核心大導正】利用陣列位置精確切分每一欄文字
+                # 🎯【終極修正點】補回先前漏打的 [0] ~ [5] 陣列序號！
                 col_A = str(row[0]).strip() if len(row) > 0 else ""
                 col_B = str(row[1]).strip() if len(row) > 1 else ""
                 col_C = str(row[2]).strip() if len(row) > 2 else ""
@@ -103,6 +103,7 @@ if check_password():
                         "故障狀況": col_C, 
                         "圖片連結清單": photo_links,
                         "currently": col_E,
+                        "currently_备注": col_F,
                         "目前狀態": col_E, 
                         "維修進度備註": col_F
                     }
@@ -113,7 +114,7 @@ if check_password():
                         if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
                         if photo_links: current_case["圖片連結清單"].extend(photo_links)
                         if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
-                        if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
+                        if col_F and col_F != "nan": current_case["currently_备注"] = current_case["維修進度備註"] = current_case["維修進度備註"] + "\n" + col_F
 
             if current_case:
                 structured_list.append(current_case)
@@ -148,7 +149,7 @@ if check_password():
                     elif "待主管審核" in t: return "待主管審核"
                     else: return "設備課待處理"
                     
-                clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_four_layers) if "currently" in clean_df.columns else clean_df["目前狀態"].apply(split_status_four_layers)
+                clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_four_layers) if "currently" in clean_df.columns else clean_df["currently"].apply(split_status_four_layers)
 
                 # 月份安全提取
                 def extract_month_label(datetime_text):
@@ -260,7 +261,7 @@ if check_password():
                 status_box = str(row_data["目前狀態"]).replace("\n", "<br>")
                 memo_box = str(row_data["維修進度備註"]).replace("\n", "<br>") if row_data["維修進度備註"] else "無備註"
                 
-                # 🚀 智慧多照片按鈕動態生成
+                # 智慧多照片按鈕動態生成
                 links_html = ""
                 if row_data["圖片連結清單"]:
                     unique_links = list(dict.fromkeys(row_data["圖片連結清單"]))
