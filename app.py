@@ -48,7 +48,7 @@ if check_password():
             spreadsheet = gc.open_by_url(spreadsheet_url)
             worksheet = spreadsheet.get_worksheet(0)
             
-            # 🚀【超穩定公式軌道】以 FORMULA 模式撈取全表文字，底層 HYPERLINK 函數會變成純文字抓回，100% 網址不漏！
+            # 🚀【超穩定公式軌道】以 FORMULA 模式撈取全表文字，底層 HYPERLINK 函數會變成純文字抓回
             raw_text_data = worksheet.get_all_values(value_render_option='FORMULA')
             if not raw_text_data:
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
@@ -64,7 +64,7 @@ if check_password():
                 col_A = str(row[0]).strip() if len(row) > 0 else ""  # 報修日期／單號
                 col_B = str(row[1]).strip() if len(row) > 1 else ""  # 設備名稱
                 col_C = str(row[2]).strip() if len(row) > 2 else ""  # 故障狀況
-                col_D = str(row[3]).strip() if len(row) > 3 else ""  # 附件 (內藏超連結公式)
+                col_D = str(row[3]).strip() if len(row) > 3 else ""  # 附件 (✨終極修復：強制轉字串防布林False型態)
                 col_E = str(row[4]).strip() if len(row) > 4 else ""  # 目前狀態
                 col_F = str(row[5]).strip() if len(row) > 5 else ""  # 維修進度備註
                 col_G = str(row[6]).strip() if len(row) > 6 else ""  # 處理過程 (G欄)
@@ -77,11 +77,11 @@ if check_password():
 
                 # ✨【智慧網址解析引擎】：利用正規表達式，直接從純文字化的 D 欄公式字串中精確剝離出所有相片連結
                 links_found = []
-                if col_D and col_D.lower() != "nan":
+                if col_D and col_D.lower() != "nan" and col_D.lower() != "false":
                     urls = re.findall(r'(https?://[^\s"\'\)]+)', col_D)
                     for url in urls:
                         label = "照片連結"
-                        if "完工" in col_D or "完完" in col_F or "完工" in col_F:
+                        if "完工" in col_D or "完工" in col_F:
                             label = "完工圖"
                         elif "報修" in col_D or "報修" in col_C:
                             label = "報修圖"
@@ -186,17 +186,17 @@ if check_password():
                 clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_five_layers)
                 clean_df["精確進度狀態"] = clean_df["精確進度狀態"].replace("Ref已完成", "已完成")
 
-                # ✨【終極月份提取修復】：修正原本錯誤，指定陣列索引獲取月份數字
+                # ✨【月份提取精確修復】：修正原本錯誤。split('/')出來是串列，必須取[1]才是月份數字！
                 def extract_month_label(datetime_text):
                     try:
                         first_line = str(datetime_text).split("\n")[0].strip()
                         if "/" in first_line:
                             parts = first_line.split("/")
-                            month_num = int(parts[1]) # ✨精確指定第 2 個元素代表月份
+                            month_num = int(parts[1]) # ✨ 核心修正：指定[1]取得月份數字，完美解鎖全月份
                             return f"{month_num:02d}月"
                         elif "-" in first_line:
                             parts = first_line.split("-")
-                            month_num = int(parts[1])
+                            month_num = int(parts[1]) # 相容連字號日期格式
                             return f"{month_num:02d}月"
                     except:
                         pass
