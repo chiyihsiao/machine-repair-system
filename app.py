@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -47,26 +48,11 @@ if check_password():
             spreadsheet = gc.open_by_url(spreadsheet_url)
             worksheet = spreadsheet.get_worksheet(0)
             
-            # 軌道一 🚀：最穩定的純文字模式，精確撈取所有儲存格文字
-            raw_text_data = worksheet.get_all_values()
+            # 🚀【超穩定新軌道】：以 FORMULA 模式抓取，直接將欄位底層的 HYPERLINK 函數變純文字抓回，防崩潰！
+            raw_text_data = worksheet.get_all_values(value_render_option='FORMULA')
             if not raw_text_data:
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
                 return pd.DataFrame()
-            
-            # 軌道二 🚀：精確解析 Sheets API 的 JSON 陣列結構
-            sheet_data = spreadsheet.fetch_sheet_metadata({"includeGridData": True})
-            grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
-            
-            # 建立一個地圖，用來存放每一列 D 欄（附件）隱藏的藍色超連結
-            row_url_map = {}
-            for r_idx, row_meta in enumerate(grid_data):
-                cells_meta = row_meta.get("values", [])
-                if len(cells_meta) > 3: # ✨ 核心修復：確保陣列長度有超過 D 欄 (索引 3)
-                    d_cell = cells_meta[3] # ✨【終極關鍵修正】：精確鎖定第 4 欄（D欄），徹底解放照片超連結！
-                    url = d_cell.get("hyperlink", "")
-                    text = d_cell.get("formattedValue", "").strip() if d_cell.get("formattedValue") else ""
-                    if url:
-                        row_url_map[r_idx] = (text if text else "報告圖/照片", url)
 
             structured_list = []
             current_case = None
@@ -79,19 +65,29 @@ if check_password():
                 col_A = str(row[0]).strip() if len(row) > 0 else ""  # 報修日期／單號
                 col_B = str(row[1]).strip() if len(row) > 1 else ""  # 設備名稱
                 col_C = str(row[2]).strip() if len(row) > 2 else ""  # 故障狀況
+                col_D = str(row[3]).strip() if len(row) > 3 else ""  # 附件 (含照片連結)
                 col_E = str(row[4]).strip() if len(row) > 4 else ""  # 目前狀態
                 col_F = str(row[5]).strip() if len(row) > 5 else ""  # 維修進度備註
                 col_G = str(row[6]).strip() if len(row) > 6 else ""  # 處理過程 (G欄)
 
-                # 排除完全空白行
                 if not any([col_A, col_B, col_C, col_E, col_F, col_G]):
                     continue
 
-                # 嚴格排除第 1 列名稱列與標題
                 if "報修日期" in col_A or "設備名稱" in col_B or "故障狀況" in col_C:
                     continue
 
-                has_url = row_url_map.get(idx, None)
+                # ✨【智慧照片網址深挖引擎】：利用正規表達式，直接從 D 欄抓取所有 http 網址與標籤名稱
+                links_found = []
+                if col_D and col_D.lower() != "nan":
+                    # 抓取各式 Google 內建或公式內藏的網址
+                    urls = re.findall(r'(https?://[^\s"\',\)]+)', col_D)
+                    for url in urls:
+                        label = "照片連結"
+                        if "完工" in col_D or "完工" in col_F:
+                            label = "完工圖"
+                        elif "報修" in col_D or "報修" in col_C:
+                            label = "報修圖"
+                        links_found.append((label, url))
 
                 # 💡 智慧判定新案件：只要 A 欄有日期或者 B 欄出現新的設備名稱特徵
                 is_new_case = False
@@ -104,12 +100,11 @@ if check_password():
                     if current_case:
                         structured_list.append(current_case)
                     
-                    # 初始化新案件
                     current_case = {
                         "報修日期／單號": col_A if col_A.lower() != "nan" else "", 
                         "設備名稱": col_B if col_B.lower() != "nan" else "", 
                         "故障狀況": col_C if col_C.lower() != "nan" else "", 
-                        "圖片連結清單": [has_url] if has_url else [],
+                        "圖片連結清單": list(links_found),  # 寫入這筆照片連結
                         "currently": col_E if col_E.lower() != "nan" else "",
                         "currently_F": col_F if col_F.lower() != "nan" else "",
                         "目前狀態": col_E if col_E.lower() != "nan" else "", 
@@ -117,7 +112,7 @@ if check_password():
                         "後台處理人員欄": col_G if col_G.lower() != "nan" else ""
                     }
                 else:
-                    # 💡 這是次行黏合資料
+                    # 💡 次行換行黏合資料
                     if current_case:
                         if col_A and col_A.lower() != "nan": 
                             current_case["報修日期／單號"] += "\n" + col_A
@@ -125,8 +120,8 @@ if check_password():
                             current_case["設備名稱"] += ("\n" if current_case["設備名稱"] else "") + col_B
                         if col_C and col_C.lower() != "nan": 
                             current_case["故障狀況"] += ("\n" if current_case["故障狀況"] else "") + col_C
-                        if has_url: 
-                            current_case["圖片連結清單"].append(has_url)
+                        if links_found:
+                            current_case["圖片連結清單"].extend(links_found) # 黏合新換行的照片網址
                         if col_E and col_E.lower() != "nan": 
                             current_case["currently"] = current_case["currently"] + "\n" + col_E
                             current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
@@ -147,7 +142,7 @@ if check_password():
                     next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202"])), "工廠員工")
                 )
                 
-                # 全局工程師人名純化
+                # 全局工程師人名純化 (同時比對 E 欄與 G 欄)
                 def clean_engineer_name(row_data):
                     g_text = str(row_data.get("後台處理人員欄", "")).strip()
                     e_text = str(row_data.get("currently", "")).strip()
@@ -168,13 +163,14 @@ if check_password():
                 # 五層進度分類
                 def split_status_five_layers(status_text):
                     t = str(status_text)
-                    if "已完成" in t or "完工" in t: return "已完成"
+                    if "已完成" in t or "完工" in t: return "Ref已完成"
                     elif "待驗收" in t: return "待主管審核"
                     elif "維修中" in t: return "維修中"
                     elif "待主管審核" in t: return "待主管審核"
                     else: return "設備課待處理"
                     
                 clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_five_layers)
+                clean_df["精確進度狀態"] = clean_df["精確進度狀態"].replace("Ref已完成", "已完成")
 
                 # 月份安全提取
                 def extract_month_label(datetime_text):
@@ -262,7 +258,7 @@ if check_password():
                 status_now = row_data["精確進度狀態"]
                 border_color = color_map.get(status_now, "#9E9E9E")
                 
-                # ✨【終極安全機制】杜絕 Pandas 的 NaN 浮點數干擾文字直顯，百分之百解放 B、C 欄
+                # ✨【終極安全機制】杜絕 Pandas 的 NaN 浮點數干擾文字直顯
                 def force_get_text(val, fallback_msg=""):
                     if pd.isna(val) or str(val).strip().lower() == "nan" or str(val).strip() == "":
                         return fallback_msg
@@ -276,19 +272,24 @@ if check_password():
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 🚀 智慧多照片超連結直顯 (已打通 D 欄索引限制)
+                # 🚀 智慧多照片超連結直顯 (基於文字公式的高穩定度解包清單)
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
                     try:
-                        unique_links = list(dict.fromkeys(row_data["圖片連結清單"]))
-                        for item in unique_links:
-                            if isinstance(item, (tuple, list)) and len(item) == 2:
-                                text_label, link_url = item
-                                links_html += f"""
-                                <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
-                                    <a href='{link_url}' target='_blank' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>🔗 點擊觀看 [{text_label}] 照片</a>
-                                </div>
-                                """
+                        # 進行去重，防止換行資料重複加入同一個網址
+                        seen = set()
+                        unique_links = []
+                        for item in row_data["圖片連結清單"]:
+                            if item[1] not in seen:
+                                seen.add(item[1])
+                                unique_links.append(item)
+
+                        for text_label, link_url in unique_links:
+                            links_html += f"""
+                            <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
+                                <a href='{link_url}' target='_blank' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>🔗 點擊觀看 [{text_label}] 照片</a>
+                            </div>
+                            """
                     except:
                         pass
 
