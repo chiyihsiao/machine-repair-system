@@ -1,10 +1,16 @@
+import base64
+import json
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 
-# ================== 智產權捍衛：內建絕對時間鎖 ==================
+# ================== 核心安全憑證與連線設定 (直接寫死免設 Secrets) ==================
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1iGGQVuo81ZgisRx2_si6F1k-Rz5aX8kyCSxGCnsc44A/edit?gid=1174613551#gid=1174613551"
+GCP_SERVICE_ACCOUNT_BASE64 = "憑證"  # 請在 GitHub 編輯時，把您的那一長串 Base64 憑證英文貼進去替換
+
+# 智產權捍衛：內建絕對時間鎖
 EXPIRATION_DATE = "2026-08-19"
 
 # 1. 網頁頂部全寬畫面配置
@@ -15,28 +21,29 @@ current_today = pd.Timestamp.now().strftime("%Y-%m-%d")
 if current_today > EXPIRATION_DATE:
     st.error("❌ 【系統授權已過期】")
     st.markdown(f"<h2 style='color:#C0392B;'>本系統一週試用期（截止至 {EXPIRATION_DATE}）已屆滿！</h2>", unsafe_allow_html=True)
-    st.markdown("<h3>如需繼續延長使用期限、更新工廠數據或獲取正式版授權，請洽原創开发者：<b style='color:#1E88E5;'>chi</b></h3>", unsafe_allow_html=True)
+    st.markdown("<h3>如需繼續延長使用期限、更新工廠數據或獲取正式版授權，請洽原創開發者：<b style='color:#1E88E5;'>chi</b></h3>", unsafe_allow_html=True)
     st.stop()
 
 # 華麗的前端大標題
 st.markdown("<h1 style='text-align: center; color: #1E88E5;'>🏭 田中工廠設備報修管理 ➔ 數據可視化戰情監控中心</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #757575;'>人員維度與進度狀態 • 智慧圓餅圖長條圖比例呈現版 (Google 試算表雲端同步版)</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #757575;'>人員維度與進度狀態 • 智慧圓餅圖長條圖比例呈現版 (雲端免設定直連版)</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 # ================== 2. 核心功能：連線 Google 試算表與多行黏合器 ==================
 @st.cache_data(ttl=3) # 快取 3 秒，雲端變更後重新整理即可同步
 def load_and_stitch_perfect_rows_cloud_final():
     try:
-        # 🔒 從 Streamlit 雲端安全設定讀取金鑰憑證
+        # 🔓 直接在程式碼內進行 Base64 解碼獲取憑證
+        decoded_creds = base64.b64decode(GCP_SERVICE_ACCOUNT_BASE64).decode("utf-8")
+        creds_dict = json.loads(decoded_creds)
+        
         scope = ["https://google.com", "https://googleapis.com"]
-        creds_dict = st.secrets["gcp_service_account"]
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
         gc = gspread.authorize(credentials)
         
-        # 🚀 讀取 Google 試算表 (這裏請確認與您的雲端試算表名稱完全一致)
-        spreadsheet_name = "(新)2026工事單報修總表" 
-        spreadsheet = gc.open(spreadsheet_name)
-        worksheet = spreadsheet.get_worksheet(0) # 預設讀取第一個工作表
+        # 🚀 透過網址直接精確開啟試算表與對應工作表
+        spreadsheet = gc.open_by_url(SPREADSHEET_URL)
+        worksheet = spreadsheet.get_worksheet(0) 
         
         # 轉換為 DataFrame 處理
         raw_data = worksheet.get_all_values()
@@ -51,10 +58,10 @@ def load_and_stitch_perfect_rows_cloud_final():
         current_case = None
 
         for _, row in raw_df.iterrows():
-            if len(row) < 6: # 確保至少有 A 到 F 欄
+            if len(row) < 6:
                 continue
 
-            # 精確抓取 A 到 F 欄
+            # 精確抓取 A 到 F 欄 (修正：還原回 row 索引提取語法)
             col_A = str(row[0]).strip()
             col_B = str(row[1]).strip()
             col_C = str(row[2]).strip()
@@ -91,7 +98,7 @@ def load_and_stitch_perfect_rows_cloud_final():
                     if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                     if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
                     if col_D and col_D != "nan": current_case["附件"] += "\n" + col_D
-                    if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
+                    if col_E and col_E != "nan": current_case["目前狀態"] += "\n" + col_E
                     if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
 
         if current_case:
@@ -127,12 +134,12 @@ def load_and_stitch_perfect_rows_cloud_final():
                 elif "待主管審核" in t: return "待主管審核"
                 else: return "設備課待處理"
                 
-            clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_four_layers) if "currently" in clean_df.columns else clean_df["目前狀態"].apply(split_status_four_layers)
+            clean_df["精確進度狀態"] = clean_df["目前狀態"].apply(split_status_four_layers)
 
             # 月份安全提取
             def extract_month_label(datetime_text):
-                first_line = str(datetime_text).split("\n")[0].strip()
                 try:
+                    first_line = str(datetime_text).split("\n")[0].strip()
                     if "/" in first_line:
                         parts = first_line.split("/")
                         month_num = int(parts[1])
