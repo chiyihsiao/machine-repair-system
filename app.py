@@ -19,7 +19,7 @@ if current_today > EXPIRATION_DATE:
     st.markdown("<h3>如需繼續延長使用期限、更新工廠數據或獲取正式版授權，請洽原創開發者：<b style='color:#1E88E5;'>chi</b></h3>", unsafe_allow_html=True)
     st.stop()
 
-# --- 🔐 密碼保護機制 (比照第一案成功模式，若不需要密碼，可直接忽略此段檢查) ---
+# --- 🔐 密碼保護機制 ---
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
@@ -65,16 +65,15 @@ if check_password():
             structured_list = []
             current_case = None
 
-            # 🚀 精確多欄位資料提取
+            # 🚀 精確多欄位資料提取 (跳過原本的 D 欄附件)
             for row in raw_data:
                 if len(row) < 5:
                     continue
 
-                # 精確抓取各欄位的原始文字，不使用 str(row) 避免分裂成單字
                 col_A = str(row[0]).strip() if len(row) > 0 else ""
                 col_B = str(row[1]).strip() if len(row) > 1 else ""
                 col_C = str(row[2]).strip() if len(row) > 2 else ""
-                col_D = str(row[3]).strip() if len(row) > 3 else ""
+                # 跳過原本的 D 欄附件，直接對接狀態與備註
                 col_E = str(row[4]).strip() if len(row) > 4 else ""
                 col_F = str(row[5]).strip() if len(row) > 5 else ""
 
@@ -83,7 +82,6 @@ if check_password():
                     if current_case:
                         if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                         if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
-                        if col_D and col_D != "nan": current_case["附件"] += "\n" + col_D
                         if col_E and col_E != "nan": current_case["目前狀態"] += "\n" + col_E
                         if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
                     continue
@@ -97,7 +95,6 @@ if check_password():
                         "報修日期／單號": col_A, 
                         "設備名稱": col_B, 
                         "故障狀況": col_C, 
-                        "附件": col_D, 
                         "目前狀態": col_E, 
                         "維修進度備註": col_F
                     }
@@ -106,7 +103,6 @@ if check_password():
                         if col_A and col_A != "nan": current_case["報修日期／單號"] += "\n" + col_A
                         if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                         if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
-                        if col_D and col_D != "nan": current_case["附件"] += "\n" + col_D
                         if col_E and col_E != "nan": current_case["目前狀態"] += "\n" + col_E
                         if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
 
@@ -242,6 +238,7 @@ if check_password():
 
         st.markdown("---")
         st.markdown("### 📋 歷史報修詳細清單 (與 Excel 標題 100% 相同對齊版)")
-        st.dataframe(filtered_df[["報修日期／單號", "設備名稱", "故障狀況", "附件", "目前狀態", "維修進度備註"]], use_container_width=True, height=500)
+        # 🌟 附件欄位已完美移除，回歸最乾淨的 5 欄顯示！
+        st.dataframe(filtered_df[["報修日期／單號", "設備名稱", "故障狀況", "目前狀態", "維修進度備註"]], use_container_width=True, height=500)
     else:
         st.warning("⚠️ 數據讀取成功，但清洗過後「無符合判定條件」的案件資料。請確認您的 Google 試算表中 A 欄是否包含標準日期格式 (例如 2026/08/12)。")
