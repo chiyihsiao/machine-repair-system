@@ -48,7 +48,7 @@ if check_password():
             spreadsheet = gc.open_by_url(spreadsheet_url)
             worksheet = spreadsheet.get_worksheet(0)
             
-            # 🚀 回歸最穩定的寫法：開啟 FORMULA 公式讀取模式，安全又不會造成文字漏抓！
+            # 開啟 FORMULA 模式完整讀取
             raw_data = worksheet.get_all_values(value_render_option="FORMULA")
             if not raw_data:
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
@@ -57,38 +57,37 @@ if check_password():
             structured_list = []
             current_case = None
 
-            # 🚀 100% 準確的多行純文字黏合迴圈 (從第 2 列開始讀取)
+            # 🚀 徹底修正：使用標準 row[索引] 分欄提取，絕對不再錯位漏抓
             for idx, row in enumerate(raw_data):
-                if idx == 0: # 跳過第 1 列的標題項目欄
+                if idx == 0: # 跳過第 1 列項目名稱標題
                     continue
                     
                 if len(row) < 5:
                     continue
 
-                # 🎯 絕對不會再錯！使用最純粹的陣列索引提取
+                # 🎯【核心大導正】利用陣列位置精確切分每一欄文字
                 col_A = str(row[0]).strip() if len(row) > 0 else ""
                 col_B = str(row[1]).strip() if len(row) > 1 else ""
                 col_C = str(row[2]).strip() if len(row) > 2 else ""
-                col_D = str(row[3]).strip() if len(row) > 3 else "" # 這是 D 欄公式文字
+                col_D = str(row[3]).strip() if len(row) > 3 else "" # 這是 D 欄照片公式
                 col_E = str(row[4]).strip() if len(row) > 4 else ""
                 col_F = str(row[5]).strip() if len(row) > 5 else ""
 
                 # 🛠️ 智慧文字解析：從公式 =HYPERLINK("網址", "顯示字") 中把照片連結挖出來
-                photo_label = ""
-                photo_url = ""
+                photo_links = []
                 if "HYPERLINK" in col_D:
                     urls = re.findall(r'"(https?://[^"]+)"', col_D)
                     labels = re.findall(r',[^"\')]*"([^"]+)"', col_D) or re.findall(r',[^"\')]*\'([^\']+)\'', col_D)
                     if urls:
-                        photo_url = urls[0]
-                        photo_label = labels[0] if labels else "查看照片"
+                        lbl = labels[0] if labels else "查看照片"
+                        photo_links.append((lbl, urls[0]))
 
                 # 判定這列是不是「多行黏合的延伸空行」
                 if col_A == "nan" or col_A == "":
                     if current_case:
                         if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                         if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
-                        if photo_url: current_case["圖片連結清單"].append((photo_label, photo_url))
+                        if photo_links: current_case["圖片連結清單"].extend(photo_links)
                         if col_E and col_E != "nan": current_case["目前狀態"] += "\n" + col_E
                         if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
                     continue
@@ -102,7 +101,7 @@ if check_password():
                         "報修日期／單號": col_A, 
                         "設備名稱": col_B, 
                         "故障狀況": col_C, 
-                        "圖片連結清單": [(photo_label, photo_url)] if photo_url else [],
+                        "圖片連結清單": photo_links,
                         "currently": col_E,
                         "目前狀態": col_E, 
                         "維修進度備註": col_F
@@ -112,7 +111,7 @@ if check_password():
                         if col_A and col_A != "nan": current_case["報修日期／單號"] += "\n" + col_A
                         if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                         if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
-                        if photo_url: current_case["圖片連結清單"].append((photo_label, photo_url))
+                        if photo_links: current_case["圖片連結清單"].extend(photo_links)
                         if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
                         if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
 
