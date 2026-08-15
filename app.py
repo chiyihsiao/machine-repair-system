@@ -1,6 +1,5 @@
 import base64
 import json
-import re
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -48,15 +47,30 @@ if check_password():
             spreadsheet = gc.open_by_url(spreadsheet_url)
             worksheet = spreadsheet.get_worksheet(0)
             
-            # 🚀【超穩定公式軌道】以 FORMULA 模式撈取全表文字，底層 HYPERLINK 函數會變成純文字抓回
-            raw_text_data = worksheet.get_all_values(value_render_option='FORMULA')
+            # 軌道一 🚀：最穩定的純文字模式，精確撈取所有儲存格文字
+            raw_text_data = worksheet.get_all_values()
             if not raw_text_data:
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
                 return pd.DataFrame()
+            
+            # 軌道二 🚀：還原元數據結構，用來挖出 D 欄隱藏的超連結
+            sheet_data = spreadsheet.fetch_sheet_metadata({"includeGridData": True})
+            grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
+            
+            # 建立一個地圖，存放每一列 D 欄（附件）隱藏的藍色超連結
+            row_url_map = {}
+            for r_idx, row_meta in enumerate(grid_data):
+                cells_meta = row_meta.get("values", [])
+                if len(cells_meta) > 3: # 有涵蓋到 D 欄
+                    d_cell = cells_meta[3]
+                    url = d_cell.get("hyperlink", "")
+                    text = d_cell.get("formattedValue", "").strip() if d_cell.get("formattedValue") else ""
+                    if url:
+                        row_url_map[r_idx] = (text if text else "照片連結", url)
 
             structured_list = []
             current_case = None
-            # 🚀 開始進行 100% 完美對齊後台的多行黏合迴圈 (全覆蓋 A 到 G 欄)
+            # 🚀 開始進行多行黏合迴圈 (全覆蓋 A 到 G 欄)
             for idx, row in enumerate(raw_text_data):
                 if not row or len(row) == 0:
                     continue
@@ -64,7 +78,6 @@ if check_password():
                 col_A = str(row[0]).strip() if len(row) > 0 else ""  # 報修日期／單號
                 col_B = str(row[1]).strip() if len(row) > 1 else ""  # 設備名稱
                 col_C = str(row[2]).strip() if len(row) > 2 else ""  # 故障狀況
-                col_D = str(row[3]).strip() if len(row) > 3 else ""  # 附件 (✨終極修復：強制轉字串防布林False型態)
                 col_E = str(row[4]).strip() if len(row) > 4 else ""  # 目前狀態
                 col_F = str(row[5]).strip() if len(row) > 5 else ""  # 維修進度備註
                 col_G = str(row[6]).strip() if len(row) > 6 else ""  # 處理過程 (G欄)
@@ -75,38 +88,13 @@ if check_password():
                 if "報修日期" in col_A or "設備名稱" in col_B or "故障狀況" in col_C:
                     continue
 
-                # ✨【智慧網址解析引擎】：利用正規表達式，直接從純文字化的 D 欄公式字串中精確剝離出所有相片連結
-                links_found = []
-                if col_D and col_D.lower() != "nan" and col_D.lower() != "false":
-                    urls = re.findall(r'(https?://[^\s"\'\)]+)', col_D)
-                    for url in urls:
-                        label = "照片連結"
-                        if "完工" in col_D or "完工" in col_F:
-                            label = "完工圖"
-                        elif "報修" in col_D or "報修" in col_C:
-                            label = "報修圖"
-                        links_found.append((label, url))
+                has_url = row_url_map.get(idx, None)
 
-                # ✨【智慧清洗純文字】：把設備名稱、目前狀態裡的超連結公式濾乾淨，留下純中文字呈現
-                def clean_formula_text(val):
-                    t = str(val).strip()
-                    if t.upper().startswith("=HYPERLINK"):
-                        matches = re.findall(r',[^"\']*["\']([^"\']+)["\']', t)
-                        if matches: return matches[-1].strip()
-                    return t
-
-                clean_A = clean_formula_text(col_A)
-                clean_B = clean_formula_text(col_B)
-                clean_C = clean_formula_text(col_C)
-                clean_E = clean_formula_text(col_E)
-                clean_F = clean_formula_text(col_F)
-                clean_G = clean_formula_text(col_G)
-
-                # 💡 智慧判定新案件
+                # 💡 智慧判定新案件：只要 A 欄有日期或者 B 欄出現新的設備名稱特徵
                 is_new_case = False
-                if clean_A and (clean_A.startswith("202") or ("202" in clean_A and "/") in clean_A or ("202" in clean_A and "-") in clean_A):
+                if col_A and (col_A.startswith("202") or ("202" in col_A and "/") in col_A):
                     is_new_case = True
-                elif clean_B and clean_B.lower() != "nan" and any(k in clean_B for k in ["機", "區", "門", "模", "線"]):
+                elif col_B and col_B.lower() != "nan" and any(k in col_B for k in ["機", "區", "門", "模", "線"]):
                     is_new_case = True
 
                 if is_new_case:
@@ -114,35 +102,28 @@ if check_password():
                         structured_list.append(current_case)
                     
                     current_case = {
-                        "報修日期／單號": clean_A if clean_A.lower() != "nan" else "", 
-                        "設備名稱": clean_B if clean_B.lower() != "nan" else "", 
-                        "故障狀況": clean_C if clean_C.lower() != "nan" else "", 
-                        "圖片連結清單": list(links_found),  # 寫入本行挖到的照片
-                        "currently": clean_E if clean_E.lower() != "nan" else "",
-                        "currently_F": clean_F if clean_F.lower() != "nan" else "",
-                        "currently_G": clean_G if clean_G.lower() != "nan" else "",
-                        "目前狀態": clean_E if clean_E.lower() != "nan" else "", 
-                        "維修進度備註": clean_F if clean_F.lower() != "nan" else "",
-                        "後台處理人員欄": clean_G if clean_G.lower() != "nan" else ""
+                        "報修日期／單號": col_A if col_A.lower() != "nan" else "", 
+                        "設備名稱": col_B if col_B.lower() != "nan" else "", 
+                        "故障狀況": col_C if col_C.lower() != "nan" else "", 
+                        "圖片連結清單": [has_url] if has_url else [],
+                        "currently": col_E if col_E.lower() != "nan" else "",
+                        "currently_F": col_F if col_F.lower() != "nan" else "",
+                        "目前狀態": col_E if col_E.lower() != "nan" else "", 
+                        "維修進度備註": col_F if col_F.lower() != "nan" else "",
+                        "後台處理人員欄": col_G if col_G.lower() != "nan" else ""
                     }
                 else:
-                    # 💡 次行換行黏合資料
                     if current_case:
-                        if clean_A and clean_A.lower() != "nan": 
-                            current_case["報修日期／單號"] += "\n" + clean_A
-                        if clean_B and "類別" not in clean_B and clean_B.lower() != "nan": 
-                            current_case["設備名稱"] += ("\n" if current_case["設備名稱"] else "") + clean_B
-                        if clean_C and clean_C.lower() != "nan": 
-                            current_case["故障狀況"] += ("\n" if current_case["故障狀況"] else "") + clean_C
-                        if links_found:
-                            current_case["圖片連結清單"].extend(links_found) # 黏合新換行的照片網址
-                        if clean_E and clean_E.lower() != "nan": 
-                            current_case["currently"] = current_case["currently"] + "\n" + clean_E
-                            current_case["目前狀態"] = current_case["目前狀態"] + "\n" + clean_E
-                        if clean_F and clean_F.lower() != "nan": 
-                            current_case["維修進度備註"] += "\n" + clean_F
-                        if clean_G and clean_G.lower() != "nan": 
-                            current_case["後台處理人員欄"] += "\n" + clean_G
+                        if col_A and col_A.lower() != "nan": current_case["報修日期／單號"] += "\n" + col_A
+                        if col_B and "類別" not in col_B and col_B.lower() != "nan": 
+                            current_case["設備名稱"] += ("\n" if current_case["設備名稱"] else "") + col_B
+                        if col_C and col_C.lower() != "nan": current_case["故障狀況"] += ("\n" if current_case["故障狀況"] else "") + col_C
+                        if has_url: current_case["圖片連結清單"].append(has_url)
+                        if col_E and col_E.lower() != "nan": 
+                            current_case["currently"] = current_case["currently"] + "\n" + col_E
+                            current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
+                        if col_F and col_F.lower() != "nan": current_case["維修進度備註"] += "\n" + col_F
+                        if col_G and col_G.lower() != "nan": current_case["後台處理人員欄"] += "\n" + col_G
 
             if current_case:
                 structured_list.append(current_case)
@@ -151,53 +132,39 @@ if check_password():
 
             # ================== 資料清洗與特徵工程 ==================
             if not clean_df.empty:
-                # 智慧提取報修人
                 clean_df["報修人"] = clean_df["報修日期／單號"].apply(lambda x: 
                     next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202"])), "工廠員工")
                 )
                 
-                # 全局工程師人名純化 (同時比對 E 欄與 G 欄)
                 def clean_engineer_name(row_data):
-                    g_text = str(row_data.get("currently_G", "")).strip()
+                    g_text = str(row_data.get("後台處理人員欄", "")).strip()
                     e_text = str(row_data.get("currently", "")).strip()
                     f_text = str(row_data.get("currently_F", "")).strip()
-                    
                     for t in [g_text, e_text, f_text]:
                         if "蕭志成" in t: return "蕭志成"
                         elif "蕭吉義" in t: return "蕭吉義"
                         elif "葛明輝" in t: return "葛明輝"
-                        
                         for l in t.split("\n"):
-                            if "承辦" in l:
-                                return l.replace("承辦：", "").replace("承辦:", "").strip()
+                            if "承辦" in l: return l.replace("承辦：", "").replace("承辦:", "").strip()
                     return "未指派/待審核"
                     
                 clean_df["承辦人"] = clean_df.apply(clean_engineer_name, axis=1)
                 
-                # 五層進度分類
                 def split_status_five_layers(status_text):
                     t = str(status_text)
-                    if "已完成" in t or "完工" in t: return "Ref已完成"
+                    if "已完成" in t or "完工" in t: return "已完成"
                     elif "待驗收" in t: return "待主管審核"
                     elif "維修中" in t: return "維修中"
                     elif "待主管審核" in t: return "待主管審核"
                     else: return "設備課待處理"
                     
                 clean_df["精確進度狀態"] = clean_df["currently"].apply(split_status_five_layers)
-                clean_df["精確進度狀態"] = clean_df["精確進度狀態"].replace("Ref已完成", "已完成")
 
-                # ✨【月份提取精確修復】：修正原本錯誤。split('/')出來是串列，必須取[1]才是月份數字！
                 def extract_month_label(datetime_text):
                     try:
                         first_line = str(datetime_text).split("\n")[0].strip()
                         if "/" in first_line:
-                            parts = first_line.split("/")
-                            month_num = int(parts[1]) # ✨ 核心修正：指定[1]取得月份數字，完美解鎖全月份
-                            return f"{month_num:02d}月"
-                        elif "-" in first_line:
-                            parts = first_line.split("-")
-                            month_num = int(parts[1]) # 相容連字號日期格式
-                            return f"{month_num:02d}月"
+                            return f"{int(first_line.split('/')[1]):02d}月"
                     except:
                         pass
                     return "08月"
@@ -276,7 +243,6 @@ if check_password():
                 status_now = row_data["精確進度狀態"]
                 border_color = color_map.get(status_now, "#9E9E9E")
                 
-                # ✨【終極安全機制】杜絕 Pandas 的 NaN 浮點數干擾文字直顯
                 def force_get_text(val, fallback_msg=""):
                     if pd.isna(val) or str(val).strip().lower() == "nan" or str(val).strip() == "":
                         return fallback_msg
@@ -290,14 +256,13 @@ if check_password():
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 🚀 智慧多照片超連結直顯 (全自動展開多連結)
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
                     try:
                         seen = set()
                         unique_links = []
                         for item in row_data["圖片連結清單"]:
-                            if item not in seen:
+                            if item and item not in seen:
                                 seen.add(item)
                                 unique_links.append(item)
 
