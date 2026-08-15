@@ -7,14 +7,14 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # ================== 核心安全憑證與連線設定 (直接寫死免設 Secrets) ==================
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1iGGQVuo81ZgisRx2_si6F1k-Rz5aX8kyCSxGCnsc44A/edit?gid=1174613551#gid=1174613551"
-GCP_SERVICE_ACCOUNT_BASE64 = "憑證"  # 請在 GitHub 編輯時，把您的那一長串 Base64 憑證英文貼進去替換
+SPREADSHEET_URL = "https://google.com"
+GCP_SERVICE_ACCOUNT_BASE64 = "憑證"  # ⚠️請記得把您的那一長串 Base64 憑證英文字貼進來
 
 # 智產權捍衛：內建絕對時間鎖
 EXPIRATION_DATE = "2026-08-19"
 
 # 1. 網頁頂部全寬畫面配置
-st.set_page_config(page_title="田中工廠設備報修管理戰情監控中心", layout="wide")
+st.set_page_config(page_title="田中工廠設備報修管理戰情監监控中心", layout="wide")
 
 # 🔍 檢查軟體是否已經過期
 current_today = pd.Timestamp.now().strftime("%Y-%m-%d")
@@ -30,44 +30,40 @@ st.markdown("<p style='text-align: center; color: #757575;'>人員維度與進�
 st.markdown("---")
 
 # ================== 2. 核心功能：連線 Google 試算表與多行黏合器 ==================
-@st.cache_data(ttl=3) # 快取 3 秒，雲端變更後重新整理即可同步
+@st.cache_data(ttl=3) # 快取 3 秒
 def load_and_stitch_perfect_rows_cloud_final():
     try:
-        # 🔓 直接在程式碼內進行 Base64 解碼獲取憑證
-        decoded_creds = base64.b64decode(GCP_SERVICE_ACCOUNT_BASE64).decode("utf-8")
+        # 🔓 修正：自動清除 Base64 可能含有的換行或空格
+        clean_b64 = GCP_SERVICE_ACCOUNT_BASE64.strip().replace("\n", "").replace(" ", "")
+        decoded_creds = base64.b64decode(clean_b64).decode("utf-8")
         creds_dict = json.loads(decoded_creds)
         
         scope = ["https://google.com", "https://googleapis.com"]
         credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
         gc = gspread.authorize(credentials)
         
-        # 🚀 透過網址直接精確開啟試算表與對應工作表
         spreadsheet = gc.open_by_url(SPREADSHEET_URL)
         worksheet = spreadsheet.get_worksheet(0) 
         
-        # 轉換為 DataFrame 處理
         raw_data = worksheet.get_all_values()
         if not raw_data:
             st.error("❌ 雲端 Google 試算表內無任何數據！")
             return pd.DataFrame()
             
-        raw_df = pd.DataFrame(raw_data)
-        raw_df = raw_df.fillna("").astype(str)
-
         structured_list = []
         current_case = None
 
-        for _, row in raw_df.iterrows():
-            if len(row) < 6:
+        # 🚀 修正：精確掃描試算表的每一列與每一欄
+        for row in raw_data:
+            if len(row) < 5:
                 continue
 
-            # 精確抓取 A 到 F 欄 (修正：還原回 row 索引提取語法)
             col_A = str(row[0]).strip()
             col_B = str(row[1]).strip()
             col_C = str(row[2]).strip()
             col_D = str(row[3]).strip()
             col_E = str(row[4]).strip()
-            col_F = str(row[5]).strip()
+            col_F = str(row[5]).strip() if len(row) > 5 else ""
 
             # 跳過前 7 列的完全空行與欄位標題
             if "報修日期" in col_A or col_A == "nan" or col_A == "":
@@ -112,7 +108,7 @@ def load_and_stitch_perfect_rows_cloud_final():
                 next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202"])), "工廠員工")
             )
             
-            # 🌟【終極大修正點】進行全局名字掃描
+            # 全局名字掃描
             def clean_engineer_name(status_text):
                 t = str(status_text)
                 if "蕭志成" in t: return "蕭志成"
@@ -142,8 +138,7 @@ def load_and_stitch_perfect_rows_cloud_final():
                     first_line = str(datetime_text).split("\n")[0].strip()
                     if "/" in first_line:
                         parts = first_line.split("/")
-                        month_num = int(parts[1])
-                        return f"{month_num:02d}月"
+                        return f"{int(parts[1]):02d}月"
                 except:
                     pass
                 return "08月"
