@@ -1,7 +1,8 @@
-import os
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 
 # ================== 智產權捍衛：內建絕對時間鎖 ==================
 EXPIRATION_DATE = "2026-08-19"
@@ -19,21 +20,31 @@ if current_today > EXPIRATION_DATE:
 
 # 華麗的前端大標題
 st.markdown("<h1 style='text-align: center; color: #1E88E5;'>🏭 田中工廠設備報修管理 ➔ 數據可視化戰情監控中心</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center; color: #757575;'>人員維度與進度狀態 • 智慧圓餅圖長條圖比例呈現版 (PC 本機 Excel 穩定版)</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #757575;'>人員維度與進度狀態 • 智慧圓餅圖長條圖比例呈現版 (Google 試算表雲端同步版)</p>", unsafe_allow_html=True)
 st.markdown("---")
 
-# ================== 2. 核心功能：與您的完美表格 100% 精準多行黏合器 ==================
-LOCAL_EXCEL_FILE = "(新)2026工事單報修總表.xlsx"
-
-@st.cache_data(ttl=3) # 快取縮短為 3 秒，方便你改 Excel 存檔後重整網頁立刻更新
-def load_and_stitch_perfect_rows_local_final():
+# ================== 2. 核心功能：連線 Google 試算表與多行黏合器 ==================
+@st.cache_data(ttl=3) # 快取 3 秒，雲端變更後重新整理即可同步
+def load_and_stitch_perfect_rows_cloud_final():
     try:
-        if not os.path.exists(LOCAL_EXCEL_FILE):
-            st.error(f"❌ 找不到 Excel 檔案！請確認您的檔案名稱是否完全符合：`{LOCAL_EXCEL_FILE}`，且與 `app1.py` 放在同一個資料夾。")
+        # 🔒 從 Streamlit 雲端安全設定讀取金鑰憑證
+        scope = ["https://google.com", "https://googleapis.com"]
+        creds_dict = st.secrets["gcp_service_account"]
+        credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        gc = gspread.authorize(credentials)
+        
+        # 🚀 讀取 Google 試算表 (這裏請確認與您的雲端試算表名稱完全一致)
+        spreadsheet_name = "(新)2026工事單報修總表" 
+        spreadsheet = gc.open(spreadsheet_name)
+        worksheet = spreadsheet.get_worksheet(0) # 預設讀取第一個工作表
+        
+        # 轉換為 DataFrame 處理
+        raw_data = worksheet.get_all_values()
+        if not raw_data:
+            st.error("❌ 雲端 Google 試算表內無任何數據！")
             return pd.DataFrame()
-
-        # 🚀 讀取本地 Excel
-        raw_df = pd.read_excel(LOCAL_EXCEL_FILE, header=None, engine="openpyxl")
+            
+        raw_df = pd.DataFrame(raw_data)
         raw_df = raw_df.fillna("").astype(str)
 
         structured_list = []
@@ -57,7 +68,7 @@ def load_and_stitch_perfect_rows_local_final():
                     if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                     if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
                     if col_D and col_D != "nan": current_case["附件"] += "\n" + col_D
-                    if col_E and col_E != "nan": current_case["目前狀態"] += "\n" + col_E
+                    if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
                     if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
                 continue
 
@@ -80,7 +91,7 @@ def load_and_stitch_perfect_rows_local_final():
                     if col_B and "類別" not in col_B and col_B != "nan": current_case["設備名稱"] += "\n" + col_B
                     if col_C and col_C != "nan": current_case["故障狀況"] += "\n" + col_C
                     if col_D and col_D != "nan": current_case["附件"] += "\n" + col_D
-                    if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
+                    if col_E and col_E != "nan": current_case["currently"] = current_case["目前狀態"] = current_case["currently"] + "\n" + col_E
                     if col_F and col_F != "nan": current_case["維修進度備註"] += "\n" + col_F
 
         if current_case:
@@ -94,21 +105,20 @@ def load_and_stitch_perfect_rows_local_final():
                 next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202"])), "工廠員工")
             )
             
-            # 🌟【終極大修正點】不再管它有沒有寫「承辦：」！
-            # 直接進行全局名字掃描，只要格子裡包含這個人的名字，一律強制純化為乾淨的純姓名，徹底阻斷圖表分裂！
+            # 🌟【終極大修正點】進行全局名字掃描
             def clean_engineer_name(status_text):
                 t = str(status_text)
                 if "蕭志成" in t: return "蕭志成"
                 elif "蕭吉義" in t: return "蕭吉義"
                 elif "葛明輝" in t: return "葛明輝"
                 
-                # 兜底原有的「承辦：」提取語法
                 for l in t.split("\n"):
                     if "承辦" in l:
                         return l.replace("承辦：", "").replace("承辦:", "").strip()
                 return "未指派/待審核"
                 
             clean_df["承辦人"] = clean_df["目前狀態"].apply(clean_engineer_name)
+            
             # 四層進度分類
             def split_status_four_layers(status_text):
                 t = str(status_text)
@@ -125,7 +135,7 @@ def load_and_stitch_perfect_rows_local_final():
                 try:
                     if "/" in first_line:
                         parts = first_line.split("/")
-                        month_num = int(parts[1]) # 拿取月份數字
+                        month_num = int(parts[1])
                         return f"{month_num:02d}月"
                 except:
                     pass
@@ -135,11 +145,10 @@ def load_and_stitch_perfect_rows_local_final():
 
         return clean_df
     except Exception as e:
-        st.error(f"❌ 數據清洗失敗，原因: {e}")
+        st.error(f"❌ 雲端數據讀取或清洗失敗，原因: {e}")
         return pd.DataFrame()
 
-df = load_and_stitch_perfect_rows_local_final()
-
+df = load_and_stitch_perfect_rows_cloud_final()
 # ================== 3. Streamlit 前端網頁大螢幕呈現 ==================
 if not df.empty:
     total_cases = len(df)
@@ -193,13 +202,12 @@ if not df.empty:
         if not filtered_df.empty:
             bar_data = filtered_df.groupby(["承辦人", "精確進度狀態"]).size().reset_index(name="件數")
             
-            # 使用 barmode="stack" 垂直堆疊，並加入類別強制排序，徹底防止名字分裂
             fig_bar = px.bar(
                 bar_data, 
                 x="承辦人", 
                 y="件數", 
                 color="精確進度狀態", 
-                barmode="stack",        # 垂直堆疊
+                barmode="stack",
                 text_auto=True, 
                 height=320, 
                 template="plotly_white", 
@@ -221,4 +229,4 @@ if not df.empty:
     st.markdown("### 📋 歷史報修詳細清單 (與 Excel 標題 100% 相同對齊版)")
     st.dataframe(filtered_df[["報修日期／單號", "設備名稱", "故障狀況", "附件", "目前狀態", "維修進度備註"]], use_container_width=True, height=500)
 else:
-    st.warning("⚠️ 數據讀取成功，但清洗過後「無符合判定條件」的案件資料。請確認您的 Excel 檔中 A 欄是否包含標準日期格式 (例如 2026/08/12)。")
+    st.warning("⚠️ 數據讀取成功，但清洗過後「無符合判定條件」的案件資料。請確認您的 Google 試算表中 A 欄是否包含標準日期格式 (例如 2026/08/12)。")
