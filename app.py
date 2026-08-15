@@ -53,23 +53,51 @@ if check_password():
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
                 return pd.DataFrame()
             
-            # 軌道二 🚀：還原元數據結構，用來挖出 D 欄隱藏的超連結
+            # 軌道二 🚀：高階向下要求提取底層元數據，用來解鎖一個格子多行、多個超連結
             sheet_data = spreadsheet.fetch_sheet_metadata({"includeGridData": True})
             grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
-            
-            # 建立一個地圖，存放每一列 D 欄（附件）隱藏的藍色超連結
+            # 建立一個地圖，存放每一列 D 欄（附件）精確拆解出的超連結清單
             row_url_map = {}
             for r_idx, row_meta in enumerate(grid_data):
                 cells_meta = row_meta.get("values", [])
-                if len(cells_meta) > 3: # 有涵蓋到 D 欄
+                if len(cells_meta) > 3: # 有涵蓋到 D 欄 (索引 3)
                     d_cell = cells_meta[3]
-                    url = d_cell.get("hyperlink", "")
-                    text = d_cell.get("formattedValue", "").strip() if d_cell.get("formattedValue") else ""
-                    if url:
-                        row_url_map[r_idx] = (text if text else "照片連結", url)
+                    formatted_val = d_cell.get("formattedValue", "").strip()
+                    
+                    # 排除沒有照片的 "-" 符號
+                    if not formatted_val or formatted_val == "-":
+                        continue
+                        
+                    links_found = []
+                    text_runs = d_cell.get("textFormatRuns", [])
+                    
+                    # ✨【終極多網址解包引擎】：如果一格裡面有換行、多個關鍵字照片連結 (報修圖、完工圖)
+                    if text_runs and formatted_val:
+                        for i in range(len(text_runs)):
+                            start_idx = text_runs[i].get("startIndex", 0)
+                            end_idx = text_runs[i+1].get("startIndex", len(formatted_val)) if i+1 < len(text_runs) else len(formatted_val)
+                            
+                            run_text = formatted_val[start_idx:end_idx].strip()
+                            run_format = text_runs[i].get("format", {})
+                            run_url = run_format.get("link", {}).get("uri", "")
+                            
+                            # 嚴格篩選：只有當文字出現「圖」或「照片」關鍵字，且網址存在時才撈取
+                            if run_url and any(k in run_text for k in ["圖", "照片", "連結", "報修", "完工"]):
+                                links_found.append((run_text, run_url))
+                                
+                    # 模式 B 退路：若儲存格內是傳統單一標準超連結結構
+                    if not links_found:
+                        url = d_cell.get("hyperlink", "")
+                        if url:
+                            label = formatted_val if formatted_val else "照片連結"
+                            links_found.append((label, url))
+                            
+                    if links_found:
+                        row_url_map[r_idx] = links_found
 
             structured_list = []
             current_case = None
+
             # 🚀 開始進行多行黏合迴圈 (全覆蓋 A 到 G 欄)
             for idx, row in enumerate(raw_text_data):
                 if not row or len(row) == 0:
@@ -88,9 +116,10 @@ if check_password():
                 if "報修日期" in col_A or "設備名稱" in col_B or "故障狀況" in col_C:
                     continue
 
-                has_url = row_url_map.get(idx, None)
+                # 從剛才建立的富文本網址地圖裡，精確對齊列號(idx)抓出照片網址清單
+                has_urls_list = row_url_map.get(idx, [])
 
-                # 💡 智慧判定新案件：只要 A 欄有日期或者 B 欄出現新的設備名稱特徵
+                # 💡 智慧判定新案件條件
                 is_new_case = False
                 if col_A and (col_A.startswith("202") or ("202" in col_A and "/") in col_A):
                     is_new_case = True
@@ -105,7 +134,7 @@ if check_password():
                         "報修日期／單號": col_A if col_A.lower() != "nan" else "", 
                         "設備名稱": col_B if col_B.lower() != "nan" else "", 
                         "故障狀況": col_C if col_C.lower() != "nan" else "", 
-                        "圖片連結清單": [has_url] if has_url else [],
+                        "圖片連結清單": list(has_urls_list),  # 放入挖到的照片連結陣列
                         "currently": col_E if col_E.lower() != "nan" else "",
                         "currently_F": col_F if col_F.lower() != "nan" else "",
                         "目前狀態": col_E if col_E.lower() != "nan" else "", 
@@ -113,12 +142,14 @@ if check_password():
                         "後台處理人員欄": col_G if col_G.lower() != "nan" else ""
                     }
                 else:
+                    # 💡 次行換行黏合資料
                     if current_case:
                         if col_A and col_A.lower() != "nan": current_case["報修日期／單號"] += "\n" + col_A
                         if col_B and "類別" not in col_B and col_B.lower() != "nan": 
                             current_case["設備名稱"] += ("\n" if current_case["設備名稱"] else "") + col_B
                         if col_C and col_C.lower() != "nan": current_case["故障狀況"] += ("\n" if current_case["故障狀況"] else "") + col_C
-                        if has_url: current_case["圖片連結清單"].append(has_url)
+                        if has_urls_list:
+                            current_case["圖片連結清單"].extend(has_urls_list) # 多行內藏的照片一併追加進去
                         if col_E and col_E.lower() != "nan": 
                             current_case["currently"] = current_case["currently"] + "\n" + col_E
                             current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
@@ -164,7 +195,8 @@ if check_password():
                     try:
                         first_line = str(datetime_text).split("\n")[0].strip()
                         if "/" in first_line:
-                            return f"{int(first_line.split('/')[1]):02d}月"
+                            parts = first_line.split("/")
+                            return f"{int(parts[1]):02d}月"
                     except:
                         pass
                     return "08月"
@@ -256,6 +288,7 @@ if check_password():
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
+                # 🚀 智慧多照片超連結直顯 (已完美解開 Rich Text 區段，支援多行多關鍵字照片)
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
                     try:
