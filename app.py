@@ -33,7 +33,7 @@ def check_password():
 # 🌟 如果密碼正確，才執行後續所有內容
 if check_password():
 
-       # ================== 2. 核心功能：連線 Google 試算表與多行黏合器 (終極不漏抓版) ==================
+    # ================== 2. 核心功能：連線 Google 試算表與多行黏合器 ==================
     @st.cache_data(ttl=3) # 快取 3 秒
     def load_and_stitch_perfect_rows_cloud_final():
         try:
@@ -47,17 +47,17 @@ if check_password():
             spreadsheet = gc.open_by_url(spreadsheet_url)
             worksheet = spreadsheet.get_worksheet(0)
             
-            # 軌道一 🚀：抓取所有儲存格的純文字
+            # 軌道一 🚀：最穩定的純文字模式，精確撈取所有儲存格文字
             raw_text_data = worksheet.get_all_values()
             if not raw_text_data:
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
                 return pd.DataFrame()
             
-            # 軌道二 🚀：挖出 D 欄（附件）隱藏的藍色超連結
+            # 軌道二 🚀：精確還原 Google Sheets v4 API 元數據結構，挖出 D 欄隱藏的超連結
             sheet_data = spreadsheet.fetch_sheet_metadata({"includeGridData": True})
-            grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
+            grid_data = sheet_data["sheets"]["data"].get("rowData", [])
             
-            # 建立一個地圖，存放每一列 D 欄藏有的照片超連結
+            # 建立一個地圖，用來存放每一列 D 欄（附件）隱藏的藍色超連結
             row_url_map = {}
             for r_idx, row_meta in enumerate(grid_data):
                 cells_meta = row_meta.get("values", [])
@@ -71,18 +71,18 @@ if check_password():
             structured_list = []
             current_case = None
 
-            # 🚀 開始進行純文字多行黏合迴圈 (全覆蓋 A 到 G 欄)
+            # 🚀 開始進行 100% 完美對齊後台的多行黏合迴圈 (全覆蓋 A 到 G 欄)
             for idx, row in enumerate(raw_text_data):
                 if not row or len(row) == 0:
                     continue
 
-                # 精確對齊 A 到 G 欄，並將變數轉換為 row[i] 確保資料正確撈取
-                col_A = str(row[0]).strip() if len(row) > 0 else ""  # 報修日期
+                # 精確映射後台 A 到 G 欄元素，解決 B、C 欄漏抓的核心問題
+                col_A = str(row[0]).strip() if len(row) > 0 else ""  # 報修日期／單號
                 col_B = str(row[1]).strip() if len(row) > 1 else ""  # 設備名稱
                 col_C = str(row[2]).strip() if len(row) > 2 else ""  # 故障狀況
                 col_E = str(row[4]).strip() if len(row) > 4 else ""  # 目前狀態
                 col_F = str(row[5]).strip() if len(row) > 5 else ""  # 維修進度備註
-                col_G = str(row[6]).strip() if len(row) > 6 else ""  # 處理過程
+                col_G = str(row[6]).strip() if len(row) > 6 else ""  # 處理過程 (G欄)
 
                 # 排除完全空白行
                 if not any([col_A, col_B, col_C, col_E, col_F, col_G]):
@@ -94,23 +94,21 @@ if check_password():
 
                 has_url = row_url_map.get(idx, None)
 
-                # ✨【超級關鍵修正】：判定新案件的條件！
-                # 只要 A 欄有日期（202開頭）或者是 B 欄有新的設備文字（且不包含' nan' 換行），就強制認定是新案件！
+                # 💡 智慧判定新案件：只要 A 欄有日期（202開頭）或者 B 欄出現新的設備名稱特徵
                 is_new_case = False
-                if col_A and (col_A.startswith("202") or ("202" in col_A and "/") in col_A):
+                if col_A and (col_A.startswith("202") or ("202" in col_A and "/" in col_A)):
                     is_new_case = True
-                elif col_B and col_B.lower() != "nan" and ("類別" in col_B or "機" in col_B or "區" in col_B or "門" in col_B or "模" in col_B):
-                    # 依據您截圖中的「18-2自動機」、「水冷區」、「預熱爐」特徵來強化判定
+                elif col_B and col_B.lower() != "nan" and any(k in col_B for k in ["機", "區", "門", "模", "線"]):
                     is_new_case = True
 
                 if is_new_case:
-                    # 先保存前一個案件
+                    # 先保存前一個已經黏合完成的案件
                     if current_case:
                         structured_list.append(current_case)
                     
-                    # 初始化新案件，精確把這一行的 B、C 欄寫入！
+                    # 初始化新案件，精確把這一行的 B、C 欄主文字寫入！
                     current_case = {
-                        "報修日期／單號": col_A if col_A.lower() != "nan" else "（補填日期）", 
+                        "報修日期／單號": col_A if col_A.lower() != "nan" else "", 
                         "設備名稱": col_B if col_B.lower() != "nan" else "", 
                         "故障狀況": col_C if col_C.lower() != "nan" else "", 
                         "圖片連結清單": [has_url] if has_url else [],
@@ -132,7 +130,8 @@ if check_password():
                         if has_url: 
                             current_case["圖片連結清單"].append(has_url)
                         if col_E and col_E.lower() != "nan": 
-                            current_case["currently"] = current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
+                            current_case["currently"] = current_case["currently"] + "\n" + col_E
+                            current_case["目前狀態"] = current_case["目前狀態"] + "\n" + col_E
                         if col_F and col_F.lower() != "nan": 
                             current_case["維修進度備註"] += "\n" + col_F
                         if col_G and col_G.lower() != "nan": 
@@ -148,13 +147,13 @@ if check_password():
             if not clean_df.empty:
                 # 智慧提取報修人
                 clean_df["報修人"] = clean_df["報修日期／單號"].apply(lambda x: 
-                    next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202","補填"])), "工廠員工")
+                    next((l for l in str(x).split("\n") if len(l) >= 2 and len(l) <= 4 and not any(z in l for z in ["R2","希望","預計","202"])), "工廠員工")
                 )
                 
-                # 全局工程師人名純化
+                # 全局工程師人名純化 (同時比對 E 欄與 G 欄)
                 def clean_engineer_name(row_data):
                     g_text = str(row_data.get("後台處理人員欄", "")).strip()
-                    e_text = str(row_data.get("目前狀態", "")).strip()
+                    e_text = str(row_data.get("currently", "")).strip()
                     f_text = str(row_data.get("currently_F", "")).strip()
                     
                     for t in [g_text, e_text, f_text]:
@@ -169,7 +168,7 @@ if check_password():
                     
                 clean_df["承辦人"] = clean_df.apply(clean_engineer_name, axis=1)
                 
-                # 五層進度分類
+                # 五層進度分類 (完美收納後台截圖的「待驗收」狀態)
                 def split_status_five_layers(status_text):
                     t = str(status_text)
                     if "已完成" in t or "完工" in t: return "已完成"
@@ -186,10 +185,8 @@ if check_password():
                         first_line = str(datetime_text).split("\n")[0].strip()
                         if "/" in first_line:
                             parts = first_line.split("/")
-                            return f"{int(parts[1]):02d}月"
-                        elif "-" in first_line:
-                            parts = first_line.split("-")
-                            return f"{int(parts[1]):02d}月"
+                            month_num = int(parts[1])
+                            return f"{month_num:02d}月"
                     except:
                         pass
                     return "08月"
@@ -200,7 +197,7 @@ if check_password():
         except Exception as e:
             st.error(f"❌ 雲端數據讀取或清洗失敗，原因: {e}")
             return pd.DataFrame()
-    
+
     df = load_and_stitch_perfect_rows_cloud_final()
     # ================== 3. Streamlit 前端網頁大螢幕呈現 ==================
     if not df.empty:
@@ -254,26 +251,8 @@ if check_password():
             st.write("**👨‍🔧 各工程師承辦案件狀態比例 (強制垂直堆疊長條圖)**")
             if not filtered_df.empty:
                 bar_data = filtered_df.groupby(["承辦人", "精確進度狀態"]).size().reset_index(name="件數")
-                
-                fig_bar = px.bar(
-                    bar_data, 
-                    x="承辦人", 
-                    y="件數", 
-                    color="精確進度狀態", 
-                    barmode="stack",
-                    text_auto=True, 
-                    height=320, 
-                    template="plotly_white", 
-                    color_discrete_map=color_map
-                )
-                
-                fig_bar.update_layout(
-                    xaxis_title="工程師姓名",
-                    yaxis_title="總案件數量 (件)",
-                    legend_title="案件狀態",
-                    bargap=0.45,
-                    xaxis={'type': 'category', 'categoryorder': 'total descending'}
-                )
+                fig_bar = px.bar(bar_data, x="承辦人", y="件數", color="精確進度狀態", barmode="stack", text_auto=True, height=320, template="plotly_white", color_discrete_map=color_map)
+                fig_bar.update_layout(xaxis_title="工程師姓名", yaxis_title="總案件數量 (件)", legend_title="案件狀態", bargap=0.45, xaxis={'type': 'category', 'categoryorder': 'total descending'})
                 st.plotly_chart(fig_bar, use_container_width=True)
             else:
                 st.info("無數據可顯示長條圖")
@@ -286,40 +265,46 @@ if check_password():
                 status_now = row_data["精確進度狀態"]
                 border_color = color_map.get(status_now, "#9E9E9E")
                 
-                date_box = str(row_data["報修日期／單號"]).replace("\n", "<br>")
-                device_box = str(row_data["設備名稱"]).replace("\n", "<br>")
-                trouble_box = str(row_data["故障狀況"]).replace("\n", "<br>")
-                status_box = str(row_data["目前狀態"]).replace("\n", "<br>")
-                memo_box = str(row_data["維修進度備註"]).replace("\n", "<br>") if row_data["維修進度備註"] else "無備註"
+                # ✨【終極安全機制】杜絕 Pandas 的 NaN 浮點數干擾文字直顯，百分之百解放 B、C 欄
+                def force_get_text(val, fallback_msg=""):
+                    if pd.isna(val) or str(val).strip().lower() == "nan" or str(val).strip() == "":
+                        return fallback_msg
+                    return str(val).replace("\n", "<br>")
+
+                date_box = force_get_text(row_data.get("報修日期／單號"), "（未填日期）")
+                device_box = force_get_text(row_data.get("設備名稱"), "（未填設備）")
+                trouble_box = force_get_text(row_data.get("故障狀況"), "（未填狀況）")
+                status_box = force_get_text(row_data.get("目前狀態"), "（無狀態描述）")
+                memo_box = force_get_text(row_data.get("維修進度備註"), "無備註")
                 
-                # 🚀 智慧多照片按鈕動態生成
+                engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
+                
+                # 🚀 智慧多照片超連結直顯
                 links_html = ""
-                if row_data["圖片連結清單"]:
-                    # 去重處理，避免多行黏合時重複加入同一個超連結
-                    unique_links = list(dict.fromkeys(row_data["圖片連結清單"]))
-                    for text_label, link_url in unique_links:
-                        links_html += f"""
-                        <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
-                            <a href='{link_url}' target='_blank' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>🔗 點擊觀看 [{text_label}] 照片</a>
-                        </div>
-                        """
+                if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
+                    try:
+                        unique_links = list(dict.fromkeys(row_data["圖片連結清單"]))
+                        for item in unique_links:
+                            if isinstance(item, (tuple, list)) and len(item) == 2:
+                                text_label, link_url = item
+                                links_html += f"""
+                                <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
+                                    <a href='{link_url}' target='_blank' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>🔗 點擊觀看 [{text_label}] 照片</a>
+                                </div>
+                                """
+                    except:
+                        pass
 
                 card_html = f"""
-                <div style='
-                    border-left: 8px solid {border_color}; 
-                    background-color: #F8F9FA; 
-                    padding: 15px; 
-                    border-radius: 5px; 
-                    margin-bottom: 15px; 
-                    box-shadow: 1px 1px 5px rgba(0,0,0,0.05);
-                '>
+                <div style='border-left: 8px solid {border_color}; background-color: #F8F9FA; padding: 15px; border-radius: 5px; margin-bottom: 15px; box-shadow: 1px 1px 5px rgba(0,0,0,0.05);'>
                     <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
                         <span style='font-size: 13px; color: #666;'>📅 {date_box}</span>
                         <span style='background-color: {border_color}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;'>{status_now}</span>
                     </div>
-                    <p style='margin: 5px 0; font-size: 15px;'><b>🛠️ 設備名稱：</b><br>{device_box}</p>
-                    <p style='margin: 5px 0; font-size: 15px;'><b>🚨 故障狀況：</b><br>{trouble_box}</p>
-                    <p style='margin: 5px 0; font-size: 14px; color: #444;'><b>👨‍🔧 目前狀態欄：</b><br>{status_box}</p>
+                    <p style='margin: 8px 0; font-size: 16px; color: #111;'><b>🛠️ 設備名稱：</b><br><span style='color:#0D47A1; font-weight:bold;'>{device_box}</span></p>
+                    <p style='margin: 8px 0; font-size: 15px; color: #333;'><b>🚨 故障狀況：</b><br>{trouble_box}</p>
+                    <p style='margin: 5px 0; font-size: 14px; color: #2E7D32;'><b>👨‍🔧 負責工程師：</b><br><span style='background-color:#E8F5E9; padding:2px 6px; border-radius:4px; font-weight:bold;'>{engineer_assigned}</span></p>
+                    <p style='margin: 5px 0; font-size: 14px; color: #444;'><b>💬 目前進度狀態：</b><br>{status_box}</p>
                     <p style='margin: 5px 0; font-size: 13px; color: #777; background-color: #FFF; padding: 6px; border-radius: 4px; border: 1px dashed #DDD;'><b>📝 維修備註：</b><br>{memo_box}</p>
                     <div style='margin-top: 10px;'>{links_html}</div>
                 </div>
