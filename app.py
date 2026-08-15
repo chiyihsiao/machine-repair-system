@@ -53,9 +53,9 @@ if check_password():
                 st.error("❌ 雲端 Google 試算表內無任何數據！")
                 return pd.DataFrame()
             
-            # 軌道二 🚀：精確還原 Google Sheets v4 API 元數據結構，挖出 D 欄隱藏的超連結
+            # 軌道二 🚀：精確解析 Sheets API 的 JSON 陣列結構
             sheet_data = spreadsheet.fetch_sheet_metadata({"includeGridData": True})
-            grid_data = sheet_data["sheets"]["data"].get("rowData", [])
+            grid_data = sheet_data["sheets"][0]["data"][0].get("rowData", [])
             
             # 建立一個地圖，用來存放每一列 D 欄（附件）隱藏的藍色超連結
             row_url_map = {}
@@ -76,7 +76,7 @@ if check_password():
                 if not row or len(row) == 0:
                     continue
 
-                # 精確映射後台 A 到 G 欄元素，解決 B、C 欄漏抓的核心問題
+                # 精確映射後台 A 到 G 欄元素，並使用 row[i] 確保格式完全正確
                 col_A = str(row[0]).strip() if len(row) > 0 else ""  # 報修日期／單號
                 col_B = str(row[1]).strip() if len(row) > 1 else ""  # 設備名稱
                 col_C = str(row[2]).strip() if len(row) > 2 else ""  # 故障狀況
@@ -94,7 +94,7 @@ if check_password():
 
                 has_url = row_url_map.get(idx, None)
 
-                # 💡 智慧判定新案件：只要 A 欄有日期（202開頭）或者 B 欄出現新的設備名稱特徵
+                # 💡 智慧判定新案件：只要 A 欄有日期或者 B 欄出現新的設備名稱特徵（解決空白日期案漏抓）
                 is_new_case = False
                 if col_A and (col_A.startswith("202") or ("202" in col_A and "/" in col_A)):
                     is_new_case = True
@@ -265,7 +265,7 @@ if check_password():
                 status_now = row_data["精確進度狀態"]
                 border_color = color_map.get(status_now, "#9E9E9E")
                 
-                # ✨【終極安全機制】杜絕 Pandas 的 NaN 浮點數干擾文字直顯，百分之百解放 B、C 欄
+                # ✨【終極防呆文字清洗】全面改用 pd.isna() 判定，徹底解放 B、C 欄與 NaN 雜訊
                 def force_get_text(val, fallback_msg=""):
                     if pd.isna(val) or str(val).strip().lower() == "nan" or str(val).strip() == "":
                         return fallback_msg
