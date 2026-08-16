@@ -7,6 +7,16 @@ import plotly.express as px
 import streamlit as st
 import gspread
 
+
+def is_safe_url(value):
+    """只允許可供使用者點擊的 HTTP(S) 圖片／附件網址。"""
+    try:
+        parsed = urlparse(str(value).strip())
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
 # 1. 網頁頂部全寬畫面配置
 st.set_page_config(page_title="田中工廠設備報修管理戰情監控中心", layout="wide")
 
@@ -45,9 +55,12 @@ if check_password():
             creds_dict = json.loads(creds_json)
             
             gc = gspread.service_account_from_dict(creds_dict)
-            spreadsheet_url = st.secrets["spreadsheet_url"]
+            # 優先讀取 Apps Script 寫入的來源試算表；未設定時沿用原本 spreadsheet_url。
+            # 只要服務帳號對來源試算表具有檢視權限，就不需要再手動複製資料。
+            spreadsheet_url = st.secrets.get("source_spreadsheet_url", st.secrets["spreadsheet_url"])
             spreadsheet = gc.open_by_url(spreadsheet_url)
-            worksheet = spreadsheet.get_worksheet(0)
+            source_worksheet_name = st.secrets.get("source_worksheet_name", "").strip()
+            worksheet = spreadsheet.worksheet(source_worksheet_name) if source_worksheet_name else spreadsheet.get_worksheet(0)
             
             # 軌道一 🚀：最穩定的純文字模式，精確撈取所有儲存格文字
             raw_text_data = worksheet.get_all_values()
@@ -305,29 +318,29 @@ if check_password():
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 🚀 智慧多照片超連結直顯 (已完美解開 Rich Text 區段，支援多行多關鍵字照片)
+                # 顯示同一個 D 欄儲存格中的所有附件，例如「報修圖」與「完工圖」。
+                # 重要：is_safe_url 必須是全域函式；否則這裡會因作用域錯誤而把連結全部吞掉。
                 links_html = ""
                 if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
-                    try:
-                        seen = set()
-                        unique_links = []
-                        for item in row_data["圖片連結清單"]:
-                            if item and item not in seen:
-                                seen.add(item)
-                                unique_links.append(item)
+                    seen = set()
+                    unique_links = []
+                    for item in row_data["圖片連結清單"]:
+                        if not isinstance(item, (tuple, list)) or len(item) != 2:
+                            continue
+                        text_label, link_url = item
+                        key = (str(text_label).strip(), str(link_url).strip())
+                        if key not in seen and is_safe_url(link_url):
+                            seen.add(key)
+                            unique_links.append(key)
 
-                        for text_label, link_url in unique_links:
-                            if not is_safe_url(link_url):
-                                continue
-                            safe_label = html.escape(str(text_label))
-                            safe_url = html.escape(str(link_url), quote=True)
-                            links_html += f"""
-                            <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
-                                <a href='{safe_url}' target='_blank' rel='noopener noreferrer' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>點擊觀看 [{safe_label}]</a>
-                            </div>
-                            """
-                    except:
-                        pass
+                    for text_label, link_url in unique_links:
+                        safe_label = html.escape(text_label or "照片連結")
+                        safe_url = html.escape(link_url, quote=True)
+                        links_html += f"""
+                        <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
+                            <a href='{safe_url}' target='_blank' rel='noopener noreferrer' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>點擊觀看 [{safe_label}]</a>
+                        </div>
+                        """
 
                 card_html = f"""
                 <div style='border-left: 8px solid {border_color}; background-color: #F8F9FA; padding: 15px; border-radius: 5px; margin-bottom: 15px; box-shadow: 1px 1px 5px rgba(0,0,0,0.05);'>
