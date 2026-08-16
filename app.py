@@ -318,45 +318,38 @@ if check_password():
                 
                 engineer_assigned = str(row_data.get("承辦人", "未指派")).strip()
                 
-                # 顯示同一個 D 欄儲存格中的所有附件，例如「報修圖」與「完工圖」。
-                # 重要：is_safe_url 必須是全域函式；否則這裡會因作用域錯誤而把連結全部吞掉。
-                links_html = ""
-                if "圖片連結清單" in row_data and row_data["圖片連結清單"]:
-                    seen = set()
-                    unique_links = []
-                    for item in row_data["圖片連結清單"]:
-                        if not isinstance(item, (tuple, list)) or len(item) != 2:
-                            continue
-                        text_label, link_url = item
-                        key = (str(text_label).strip(), str(link_url).strip())
-                        if key not in seen and is_safe_url(link_url):
-                            seen.add(key)
-                            unique_links.append(key)
-
-                    for text_label, link_url in unique_links:
-                        safe_label = html.escape(text_label or "照片連結")
-                        safe_url = html.escape(link_url, quote=True)
-                        links_html += f"""
-                        <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
-                            <a href='{safe_url}' target='_blank' rel='noopener noreferrer' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>點擊觀看 [{safe_label}]</a>
-                        </div>
-                        """
-
                 card_html = f"""
-                <div style='border-left: 8px solid {border_color}; background-color: #F8F9FA; padding: 15px; border-radius: 5px; margin-bottom: 15px; box-shadow: 1px 1px 5px rgba(0,0,0,0.05);'>
-                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
-                        <span style='font-size: 13px; color: #666;'>📅 {date_box}</span>
-                        <span style='background-color: {border_color}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;'>{html.escape(str(status_now))}</span>
-                    </div>
-                    <p style='margin: 8px 0; font-size: 16px; color: #111;'><b>🛠️ 設備名稱：</b><br><span style='color:#0D47A1; font-weight:bold;'>{device_box}</span></p>
-                    <p style='margin: 8px 0; font-size: 15px; color: #333;'><b>🚨 故障狀況：</b><br>{trouble_box}</p>
-                    <p style='margin: 5px 0; font-size: 14px; color: #2E7D32;'><b>👨‍🔧 負責工程師：</b><br><span style='background-color:#E8F5E9; padding:2px 6px; border-radius:4px; font-weight:bold;'>{html.escape(engineer_assigned)}</span></p>
-                    <p style='margin: 5px 0; font-size: 14px; color: #444;'><b>💬 目前進度狀態：</b><br>{status_box}</p>
-                    <p style='margin: 5px 0; font-size: 13px; color: #777; background-color: #FFF; padding: 6px; border-radius: 4px; border: 1px dashed #DDD;'><b>📝 維修備註：</b><br>{memo_box}</p>
-                    <div style='margin-top: 10px;'>{links_html}</div>
-                </div>
-                """
+<div style='border-left: 8px solid {border_color}; background-color: #F8F9FA; padding: 15px; border-radius: 5px; margin-bottom: 8px; box-shadow: 1px 1px 5px rgba(0,0,0,0.05);'>
+  <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
+    <span style='font-size: 13px; color: #666;'>📅 {date_box}</span>
+    <span style='background-color: {border_color}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;'>{html.escape(str(status_now))}</span>
+  </div>
+  <p style='margin: 8px 0; font-size: 16px; color: #111;'><b>🛠️ 設備名稱：</b><br><span style='color:#0D47A1; font-weight:bold;'>{device_box}</span></p>
+  <p style='margin: 8px 0; font-size: 15px; color: #333;'><b>🚨 故障狀況：</b><br>{trouble_box}</p>
+  <p style='margin: 5px 0; font-size: 14px; color: #2E7D32;'><b>👨‍🔧 負責工程師：</b><br><span style='background-color:#E8F5E9; padding:2px 6px; border-radius:4px; font-weight:bold;'>{html.escape(engineer_assigned)}</span></p>
+  <p style='margin: 5px 0; font-size: 14px; color: #444;'><b>💬 目前進度狀態：</b><br>{status_box}</p>
+  <p style='margin: 5px 0; font-size: 13px; color: #777; background-color: #FFF; padding: 6px; border-radius: 4px; border: 1px dashed #DDD;'><b>📝 維修備註：</b><br>{memo_box}</p>
+</div>
+"""
+                # 不再把 <a> 標籤放入 markdown 字串；使用 Streamlit 原生 link_button，
+                # 避免多行縮排被 Markdown 解讀成程式碼區塊。
                 st.markdown(card_html, unsafe_allow_html=True)
+                attachment_items = row_data.get("圖片連結清單", [])
+                seen = set()
+                attachment_links = []
+                for item in attachment_items if isinstance(attachment_items, list) else []:
+                    if not isinstance(item, (tuple, list)) or len(item) != 2:
+                        continue
+                    label, link_url = str(item[0]).strip(), str(item[1]).strip()
+                    key = (label, link_url)
+                    if key not in seen and is_safe_url(link_url):
+                        seen.add(key)
+                        attachment_links.append((label or "照片連結", link_url))
+                if attachment_links:
+                    attachment_cols = st.columns(min(len(attachment_links), 3))
+                    for link_index, (label, link_url) in enumerate(attachment_links):
+                        with attachment_cols[link_index % len(attachment_cols)]:
+                            st.link_button(f"點擊觀看 [{label}]", link_url)
         else:
             st.info("目前無符合篩選條件的報修案件。")
             
