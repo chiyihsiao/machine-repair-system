@@ -1,5 +1,7 @@
 import base64
 import json
+import html
+from urllib.parse import urlparse
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -71,26 +73,40 @@ if check_password():
                     links_found = []
                     text_runs = d_cell.get("textFormatRuns", [])
                     
-                    # ✨【終極多網址解包引擎】：如果一格裡面有換行、多個關鍵字照片連結 (報修圖、完工圖)
+                    # 多網址 Rich Text 解包：Google Sheets 的 startIndex 是 UTF-16 code unit，
+                    # 不能直接拿來切 Python 字串；改用 UTF-16 對應表，避免中文／emoji 造成標籤與網址錯位。
+                    def utf16_slice(text, start, end):
+                        positions = [0]
+                        for char in text:
+                            positions.append(positions[-1] + len(char.encode("utf-16-le")) // 2)
+                        start_pos = next((i for i, p in enumerate(positions) if p >= start), len(text))
+                        end_pos = next((i for i, p in enumerate(positions) if p >= end), len(text))
+                        return text[start_pos:end_pos]
+
+                    def is_safe_url(value):
+                        try:
+                            parsed = urlparse(str(value).strip())
+                            return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+                        except Exception:
+                            return False
+
                     if text_runs and formatted_val:
-                        for i in range(len(text_runs)):
-                            start_idx = text_runs[i].get("startIndex", 0)
-                            end_idx = text_runs[i+1].get("startIndex", len(formatted_val)) if i+1 < len(text_runs) else len(formatted_val)
-                            
-                            run_text = formatted_val[start_idx:end_idx].strip()
-                            run_format = text_runs[i].get("format", {})
-                            run_url = run_format.get("link", {}).get("uri", "")
-                            
-                            # 嚴格篩選：只有當文字出現「圖」或「照片」關鍵字，且網址存在時才撈取
-                            if run_url and any(k in run_text for k in ["圖", "照片", "連結", "報修", "完工"]):
-                                links_found.append((run_text, run_url))
+                        for i, run in enumerate(text_runs):
+                            start_idx = int(run.get("startIndex", 0) or 0)
+                            end_idx = int(text_runs[i + 1].get("startIndex", 10**9) or 10**9) if i + 1 < len(text_runs) else 10**9
+                            run_text = utf16_slice(formatted_val, start_idx, end_idx).strip()
+                            run_format = run.get("format", {}) or {}
+                            run_url = (run_format.get("link", {}) or {}).get("uri", "")
+                            if run_url and is_safe_url(run_url):
+                                # 不限制關鍵字：同一格可同時放報修圖、完工圖或自訂附件名稱。
+                                links_found.append((run_text or "照片連結", run_url.strip()))
                                 
                     # 模式 B 退路：若儲存格內是傳統單一標準超連結結構
                     if not links_found:
                         url = d_cell.get("hyperlink", "")
-                        if url:
+                        if url and is_safe_url(url):
                             label = formatted_val if formatted_val else "照片連結"
-                            links_found.append((label, url))
+                            links_found.append((label, url.strip()))
                             
                     if links_found:
                         row_url_map[r_idx] = links_found
@@ -277,8 +293,9 @@ if check_password():
                 
                 def force_get_text(val, fallback_msg=""):
                     if pd.isna(val) or str(val).strip().lower() == "nan" or str(val).strip() == "":
-                        return fallback_msg
-                    return str(val).replace("\n", "<br>")
+                        return html.escape(fallback_msg)
+                    # 試算表內容一律 escape，避免文字被誤當成 HTML。
+                    return html.escape(str(val)).replace("\n", "<br>")
 
                 date_box = force_get_text(row_data.get("報修日期／單號"), "（未填日期）")
                 device_box = force_get_text(row_data.get("設備名稱"), "（未填設備）")
@@ -300,9 +317,13 @@ if check_password():
                                 unique_links.append(item)
 
                         for text_label, link_url in unique_links:
+                            if not is_safe_url(link_url):
+                                continue
+                            safe_label = html.escape(str(text_label))
+                            safe_url = html.escape(str(link_url), quote=True)
                             links_html += f"""
                             <div style='margin-top: 8px; background-color: #E3F2FD; padding: 8px; border-radius: 6px; border: 1px solid #BBDEFB; text-align: center; display: inline-block; margin-right: 10px;'>
-                                <a href='{link_url}' target='_blank' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>🔗 點擊觀看 [{text_label}] 照片</a>
+                                <a href='{safe_url}' target='_blank' rel='noopener noreferrer' style='color: #0D47A1; text-decoration: none; font-size: 13px; font-weight: bold;'>點擊觀看 [{safe_label}]</a>
                             </div>
                             """
                     except:
@@ -312,11 +333,11 @@ if check_password():
                 <div style='border-left: 8px solid {border_color}; background-color: #F8F9FA; padding: 15px; border-radius: 5px; margin-bottom: 15px; box-shadow: 1px 1px 5px rgba(0,0,0,0.05);'>
                     <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
                         <span style='font-size: 13px; color: #666;'>📅 {date_box}</span>
-                        <span style='background-color: {border_color}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;'>{status_now}</span>
+                        <span style='background-color: {border_color}; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold;'>{html.escape(str(status_now))}</span>
                     </div>
                     <p style='margin: 8px 0; font-size: 16px; color: #111;'><b>🛠️ 設備名稱：</b><br><span style='color:#0D47A1; font-weight:bold;'>{device_box}</span></p>
                     <p style='margin: 8px 0; font-size: 15px; color: #333;'><b>🚨 故障狀況：</b><br>{trouble_box}</p>
-                    <p style='margin: 5px 0; font-size: 14px; color: #2E7D32;'><b>👨‍🔧 負責工程師：</b><br><span style='background-color:#E8F5E9; padding:2px 6px; border-radius:4px; font-weight:bold;'>{engineer_assigned}</span></p>
+                    <p style='margin: 5px 0; font-size: 14px; color: #2E7D32;'><b>👨‍🔧 負責工程師：</b><br><span style='background-color:#E8F5E9; padding:2px 6px; border-radius:4px; font-weight:bold;'>{html.escape(engineer_assigned)}</span></p>
                     <p style='margin: 5px 0; font-size: 14px; color: #444;'><b>💬 目前進度狀態：</b><br>{status_box}</p>
                     <p style='margin: 5px 0; font-size: 13px; color: #777; background-color: #FFF; padding: 6px; border-radius: 4px; border: 1px dashed #DDD;'><b>📝 維修備註：</b><br>{memo_box}</p>
                     <div style='margin-top: 10px;'>{links_html}</div>
