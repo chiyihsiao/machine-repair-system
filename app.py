@@ -333,23 +333,26 @@ if check_password():
 """
                 # 不再把 <a> 標籤放入 markdown 字串；使用 Streamlit 原生 link_button，
                 # 避免多行縮排被 Markdown 解讀成程式碼區塊。
-                st.markdown(card_html, unsafe_allow_html=True)
-                attachment_items = row_data.get("圖片連結清單", [])
-                seen = set()
-                attachment_links = []
-                for item in attachment_items if isinstance(attachment_items, list) else []:
-                    if not isinstance(item, (tuple, list)) or len(item) != 2:
-                        continue
-                    label, link_url = str(item[0]).strip(), str(item[1]).strip()
-                    key = (label, link_url)
-                    if key not in seen and is_safe_url(link_url):
-                        seen.add(key)
-                        attachment_links.append((label or "照片連結", link_url))
-                if attachment_links:
-                    attachment_cols = st.columns(min(len(attachment_links), 3))
-                    for link_index, (label, link_url) in enumerate(attachment_links):
-                        with attachment_cols[link_index % len(attachment_cols)]:
-                            st.link_button(f"點擊觀看 [{label}]", link_url)
+                # 案件內容與附件按鈕共用同一個外框，附件會位於維修備註下方且仍在卡片內。
+                with st.container(border=True):
+                    st.markdown(card_html, unsafe_allow_html=True)
+                    attachment_items = row_data.get("圖片連結清單", [])
+                    seen = set()
+                    attachment_links = []
+                    for item in attachment_items if isinstance(attachment_items, list) else []:
+                        if not isinstance(item, (tuple, list)) or len(item) != 2:
+                            continue
+                        label, link_url = str(item[0]).strip(), str(item[1]).strip()
+                        key = (label, link_url)
+                        if key not in seen and is_safe_url(link_url):
+                            seen.add(key)
+                            attachment_links.append((label or "照片連結", link_url))
+                    if attachment_links:
+                        st.caption("附件")
+                        attachment_cols = st.columns(min(len(attachment_links), 3))
+                        for link_index, (label, link_url) in enumerate(attachment_links):
+                            with attachment_cols[link_index % len(attachment_cols)]:
+                                st.link_button(f"點擊觀看 [{label}]", link_url, use_container_width=True)
         else:
             st.info("目前無符合篩選條件的報修案件。")
             
